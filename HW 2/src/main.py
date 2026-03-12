@@ -61,7 +61,7 @@ def _extract_user_id(request: Request) -> str | None:
 
 async def _rebuffer_body(request: Request, body: bytes) -> None:
     async def _receive():
-        return {"type": "http.request", "body": body}
+        return {"type": "http.request", "body": body, "more_body": False}
     request._receive = _receive
 
 
@@ -72,12 +72,7 @@ async def log_requests(request: Request, call_next):
     req_id     = str(uuid.uuid4())
     started_at = time.monotonic()
 
-    body_bytes = b""
-    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
-        body_bytes = await request.body()
-        await _rebuffer_body(request, body_bytes)
-
-    response   = await call_next(request)
+    response    = await call_next(request)
     duration_ms = round((time.monotonic() - started_at) * 1000)
 
     log_entry = {
@@ -89,10 +84,6 @@ async def log_requests(request: Request, call_next):
         "user_id":     _extract_user_id(request),
         "timestamp":   datetime.now(timezone.utc).isoformat(),
     }
-
-    masked = _mask_body(body_bytes)
-    if masked is not None:
-        log_entry["body"] = masked
 
     print(json.dumps(log_entry, default=str))
 
