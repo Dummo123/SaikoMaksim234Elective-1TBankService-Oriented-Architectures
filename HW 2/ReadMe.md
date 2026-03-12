@@ -220,6 +220,7 @@ POST /auth/login      { "username": "seller2", "password": "pass" }
 ```
 if doesnt work:
 ```Poweshell
+Powershell:
 $response = Invoke-RestMethod -Uri "http://127.0.0.1:8000/auth/login" -Method POST -ContentType "application/json" -Body '{"username": "seller2", "password": "pass123"}'
 $response.access_token
 ```
@@ -228,6 +229,7 @@ POST /auth/login      { "username": "user2",   "password": "pass" }
 ```
 if doesnt work:
 ```Poweshell
+Powershell:
 $user = Invoke-RestMethod -Uri "http://127.0.0.1:8000/auth/login" -Method POST -ContentType "application/json" -Body '{"username": "user2", "password": "pass123"}'
 $user.access_token
 ```
@@ -258,3 +260,26 @@ POST /orders/<id from #5>/cancel
 
 # 8. Verify stock restored — GET /products/<id> should show stock back to 100
 ```
+Шаг 1 — Подключиться к БД в DBeaver
+New Database Connection (иконка розетки + плюс вверху слева) - PostgreSQL:
+Поле		Значение
+Host		localhost
+Port		5432
+Database	shop_db
+Username	shop_user
+Password	shop_pass
+Test Connection - должно написать Connected - Finish.
+
+Шаг 2 — Открыть SQL редактор
+Слева в дереве shop_db - Базы данных - shop_db - Схемы - public - Таблицы
+F3 или правой кнопкой на shop_db - SQL Editor - New SQL Script.
+
+Вставить и выполнить (кнопка Execute или Ctrl+Enter):
+sqlSELECT * FROM users;
+SELECT * FROM products;
+SELECT * FROM orders;
+SELECT * FROM order_items;
+SELECT * FROM promo_codes;
+SELECT * FROM user_operations;
+
+Это покажет все данные которые создал через Swagger
