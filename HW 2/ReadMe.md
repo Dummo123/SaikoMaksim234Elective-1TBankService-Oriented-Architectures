@@ -66,6 +66,7 @@ pip install -r requirements.txt
 
 ```bash
 docker-compose up -d postgres
+docker ps
 ```
 
 ### Step 3 — Run Flyway migrations
@@ -77,8 +78,7 @@ docker-compose up flyway
 ### Step 4 — Generate Pydantic models from OpenAPI spec
 
 ```bash
-chmod +x generate.sh
-./generate.sh
+datamodel-codegen --input openapi/openapi.yaml --input-file-type openapi --output src/models/generated.py --output-model-type pydantic_v2.BaseModel
 ```
 
 This produces src/models/generated.py. The file is listed in .gitignore and must be
@@ -87,6 +87,7 @@ regenerated on each fresh clone before starting the server.
 ### Step 5 — Start the server
 
 ```bash
+pip install bcrypt==4.0.1
 uvicorn src.main:app --reload
 ```
 
@@ -211,17 +212,32 @@ The request_id is also returned in the X-Request-Id response header.
 
 ```bash
 # 1. Register a seller and a user
-POST /auth/register   { "username": "seller1", "password": "pass", "role": "SELLER" }
-POST /auth/register   { "username": "user1",   "password": "pass", "role": "USER"   }
+POST /auth/register   { "username": "seller2", "password": "pass", "role": "SELLER" }
+POST /auth/register   { "username": "user2",   "password": "pass", "role": "USER"   }
 
 # 2. Login and copy the access_token from each response
-POST /auth/login      { "username": "seller1", "password": "pass" }
-POST /auth/login      { "username": "user1",   "password": "pass" }
-
+POST /auth/login      { "username": "seller2", "password": "pass" }
+```
+if doesnt work:
+```Poweshell
+$response = Invoke-RestMethod -Uri "http://127.0.0.1:8000/auth/login" -Method POST -ContentType "application/json" -Body '{"username": "seller2", "password": "pass123"}'
+$response.access_token
+```
+```bash
+POST /auth/login      { "username": "user2",   "password": "pass" }
+```
+if doesnt work:
+```Poweshell
+$user = Invoke-RestMethod -Uri "http://127.0.0.1:8000/auth/login" -Method POST -ContentType "application/json" -Body '{"username": "user2", "password": "pass123"}'
+$user.access_token
+```
+```bash
 # 3. As seller — create a product
 POST /products        { "name": "Widget", "price": 9.99, "stock": 100,
                         "category": "tools", "status": "ACTIVE" }
-
+```
+(need to save id here)
+```bash
 # 4. As seller — create a promo code
 POST /promo-codes     { "code": "SAVE10", "discount_type": "PERCENTAGE",
                         "discount_value": 10, "min_order_amount": 5,
@@ -229,14 +245,16 @@ POST /promo-codes     { "code": "SAVE10", "discount_type": "PERCENTAGE",
                         "valid_until": "2027-01-01T00:00:00" }
 
 # 5. As user — place an order with the promo
-POST /orders          { "items": [{ "product_id": "<id>", "quantity": 2 }],
+POST /orders          { "items": [{ "product_id": "<id from #3>", "quantity": 2 }],
                         "promo_code": "SAVE10" }
-
+```
+(need to save id here)
+```bash
 # 6. As user — view the order
-GET /orders/<id>
+GET /orders/<id from #5>
 
 # 7. As user — cancel the order
-POST /orders/<id>/cancel
+POST /orders/<id from #5>/cancel
 
 # 8. Verify stock restored — GET /products/<id> should show stock back to 100
 ```
