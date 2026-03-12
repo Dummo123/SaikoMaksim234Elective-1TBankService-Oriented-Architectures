@@ -260,21 +260,18 @@ POST /orders/<id from #5>/cancel
 
 # 8. Verify stock restored — GET /products/<id> should show stock back to 100
 ```
-Шаг 1 — Подключиться к БД в DBeaver
-New Database Connection (иконка розетки + плюс вверху слева) - PostgreSQL:
-Поле		Значение
+New Database Connection (socket icon with a plus up-left) - PostgreSQL:
 Host		localhost
 Port		5432
 Database	shop_db
 Username	shop_user
 Password	shop_pass
-Test Connection - должно написать Connected - Finish.
+Test Connection - Connected - Finish.
 
-Шаг 2 — Открыть SQL редактор
-Слева в дереве shop_db - Базы данных - shop_db - Схемы - public - Таблицы
-F3 или правой кнопкой на shop_db - SQL Editor - New SQL Script.
+shop_db - Базы данных (databases) - shop_db - Схемы (schemas) - public - Таблицы(tables)
+rightclick shop_db (with elephant) - SQL Editor - New SQL Script.
 
-Вставить и выполнить (кнопка Execute или Ctrl+Enter):
+(Execute или Ctrl+Enter):
 sqlSELECT * FROM users;
 SELECT * FROM products;
 SELECT * FROM orders;
@@ -282,4 +279,4 @@ SELECT * FROM order_items;
 SELECT * FROM promo_codes;
 SELECT * FROM user_operations;
 
-Это покажет все данные которые создал через Swagger
+Shows progress made with Swagger
