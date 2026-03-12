@@ -260,23 +260,29 @@ POST /orders/<id from #5>/cancel
 
 # 8. Verify stock restored — GET /products/<id> should show stock back to 100
 ```
+
 New Database Connection (socket icon with a plus up-left) - PostgreSQL:
+```bash
 Host		localhost
 Port		5432
 Database	shop_db
 Username	shop_user
 Password	shop_pass
+```
+
 Test Connection - Connected - Finish.
 
 shop_db - Базы данных (databases) - shop_db - Схемы (schemas) - public - Таблицы(tables)
 rightclick shop_db (with elephant) - SQL Editor - New SQL Script.
 
 (Execute или Ctrl+Enter):
+```bash
 sqlSELECT * FROM users;
 SELECT * FROM products;
 SELECT * FROM orders;
 SELECT * FROM order_items;
 SELECT * FROM promo_codes;
 SELECT * FROM user_operations;
+```
 
 Shows progress made with Swagger
