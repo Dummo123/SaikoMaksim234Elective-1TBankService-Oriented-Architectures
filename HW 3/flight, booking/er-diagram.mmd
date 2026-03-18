@@ -1,0 +1,37 @@
+erDiagram
+    FLIGHTS {
+        bigserial   id              PK
+        varchar     flight_number
+        varchar     airline
+        varchar     origin_code
+        varchar     destination_code
+        timestamptz departure_time
+        timestamptz arrival_time
+        int         total_seats
+        int         available_seats
+        numeric     price
+        varchar     status
+    }
+
+    SEAT_RESERVATIONS {
+        bigserial   id          PK
+        bigint      flight_id   FK
+        uuid        booking_id
+        int         seat_count
+        varchar     status
+        timestamptz created_at
+    }
+
+    BOOKINGS {
+        uuid        id              PK
+        varchar     user_id
+        bigint      flight_id
+        varchar     passenger_name
+        varchar     passenger_email
+        int         seat_count
+        numeric     total_price
+        varchar     status
+        timestamptz created_at
+    }
+
+    FLIGHTS ||--o{ SEAT_RESERVATIONS : "has reservations"
