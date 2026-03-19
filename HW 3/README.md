@@ -4,88 +4,90 @@
 
 В этом домашнем задании я реализовал микросервисную систему бронирования авиабилетов из двух сервисов:
 
-Reservation Service — REST API для клиентов (ранее Booking Service)
-
-Airline Service — gRPC сервис для работы с рейсами и местами (ранее Flight Service)
+- **Booking Service** — REST API для клиентов
+- **Flight Service** — gRPC сервис для работы с рейсами и местами
 
 Архитектурно решение построено так:
 
 ```text
-Client (REST) - Reservation Service - (gRPC) - Airline Service
-                      |                              |
-                 PostgreSQL                     PostgreSQL + Redis
+Client (REST) → Booking Service → (gRPC) → Flight Service
+                      ↓                          ↓
+                 PostgreSQL               PostgreSQL + Redis
 ```
+
+---
 
 ## ER-диаграмма
 
 ```mermaid
 erDiagram
-    ROUTES {
+    FLIGHTS {
         bigserial   id              PK
-        varchar     code            "номер рейса, например SU1234"
-        varchar     carrier
+        varchar     flight_number
+        varchar     airline
         varchar     origin_code
         varchar     destination_code
         timestamptz departure_time
         timestamptz arrival_time
-        int         capacity        "общее количество мест"
-        int         free_seats       "свободные места"
+        int         total_seats
+        int         available_seats
         numeric     price
-        varchar     status          "ACTIVE, DEPARTED, CANCELLED, COMPLETED"
+        varchar     status
     }
 
-    SEAT_HOLDS {
-        bigserial   id              PK
-        bigint      route_id        FK
-        uuid        reservation_id  "UUID из Reservation Service"
-        int         seats           "зарезервировано мест"
-        varchar     status          "HELD, RELEASED, EXPIRED"
+    SEAT_RESERVATIONS {
+        bigserial   id          PK
+        bigint      flight_id   FK
+        uuid        booking_id
+        int         seat_count
+        varchar     status
         timestamptz created_at
     }
 
-    RESERVATIONS {
+    BOOKINGS {
         uuid        id              PK
         varchar     user_id
-        bigint      route_id
+        bigint      flight_id
         varchar     passenger_name
         varchar     passenger_email
-        int         seats
-        numeric     total_fare       "цена на момент бронирования"
-        varchar     status           "CONFIRMED, CANCELLED"
+        int         seat_count
+        numeric     total_price
+        varchar     status
         timestamptz created_at
     }
 
-    ROUTES ||--o{ SEAT_HOLDS : "has holds"
+    FLIGHTS ||--o{ SEAT_RESERVATIONS : "has reservations"
 ```
 
-ER-диаграмма в отдельном файле:
+ER-диаграмму я вынес в отдельный файл:
 
 ```text
 hw3-flight-booking/er-diagram.mmd
 ```
 
+---
+
 ## Структура проекта
 
 ```text
 hw3-flight-booking/
-├── reservation-service/          
+├── booking-service/
 │   ├── db.py
-│   ├── airline.proto             
+│   ├── flight.proto
 │   ├── grpc_client.py
-│   ├── circuit_breaker.py        
 │   ├── main.py
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   └── migrations/V1__init.sql
-├── airline-service/               
+├── flight-service/
 │   ├── db.py
-│   ├── airline.proto
+│   ├── flight.proto
 │   ├── main.py
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   └── migrations/V1__init.sql
 ├── proto/
-│   └── airline.proto              
+│   └── flight.proto
 ├── tests/
 │   ├── conftest.py
 │   └── test_retry.py
@@ -94,23 +96,23 @@ hw3-flight-booking/
 └── README.md
 ```
 
+---
+
 ## Что именно я реализовал по пунктам задания
 
 ## 1. Спроектировал доменную модель и ER-диаграмму
 
-Основные сущности системы:
+Сначала я выделил основные сущности системы:
 
-routes — рейсы (вместо flights)
+- `flights` — рейсы
+- `seat_reservations` — резерв мест на рейсе
+- `bookings` — итоговые бронирования пользователя
 
-seat_holds — резерв мест на рейсе (вместо seat_reservations)
+Я разделил данные так, чтобы:
+- Flight Service отвечал за рейсы и количество свободных мест
+- Booking Service отвечал за пользовательские бронирования
 
-reservations — итоговые бронирования пользователя (вместо bookings)
-
-Разделение ответственности:
-
-Airline Service отвечает за рейсы и свободные места
-
-Reservation Service отвечает за пользовательские бронирования
+Это позволило не смешивать ответственность сервисов и сделать модель ближе к реальной микросервисной архитектуре.
 
 ### Где это реализовано
 
@@ -121,176 +123,397 @@ hw3-flight-booking/er-diagram.mmd
 
 SQL-схема Flight Service:
 ```text
-airline-service/migrations/V1__init.sql
+hw3-flight-booking/flight-service/migrations/V1__init.sql
 ```
 
 SQL-схема Booking Service:
 ```text
-reservation-service/migrations/V1__init.sql
+hw3-flight-booking/booking-service/migrations/V1__init.sql
 ```
+
+---
 
 ## 2. Поднял два отдельных сервиса и две отдельные базы данных
 
-Reservation Service – REST API (FastAPI)
+Я разнес систему на два сервиса:
 
-Airline Service – gRPC сервер (методы: поиск рейсов, получение рейса, резервирование мест, освобождение)
+### Booking Service
+REST API, которое принимает HTTP-запросы от клиента.
 
-Две PostgreSQL: airline_db и reservation_db
+### Flight Service
+gRPC сервис, который:
+- ищет рейсы
+- отдает рейс по ID
+- резервирует места
+- освобождает резерв
 
-Поднято через docker-compose.yml
+Также я поднял **две отдельные PostgreSQL базы**:
+- `flight_db`
+- `booking_db`
+
+Это сделано через `docker-compose.yml`.
+
+### Где это реализовано
+
+```text
+hw3-flight-booking/docker-compose.yml
+```
+
+Сами сервисы:
+```text
+hw3-flight-booking/booking-service/
+hw3-flight-booking/flight-service/
+```
+
+---
 
 ## 3. Описал gRPC контракт между сервисами
 
-Файл proto/airline.proto (переименован из flight.proto) содержит:
+Для связи между сервисами я описал protobuf-контракт.
 
-Сообщения Route, SeatHold
+В контракт я вынес:
+- сущность `Flight`
+- сущность `SeatReservation`
+- запросы и ответы для:
+  - `SearchFlights`
+  - `GetFlight`
+  - `ReserveSeats`
+  - `ReleaseReservation`
 
-Перечисления RouteStatus, HoldStatus
+Это позволило сделать строго типизированное взаимодействие между сервисами.
 
-Методы: FindRoutes, GetRoute, HoldSeats, ReleaseHold
+### Где это реализовано
 
-Использованы google.protobuf.Timestamp и стандартные gRPC error codes
+Основной proto-файл:
+```text
+hw3-flight-booking/proto/flight.proto
+```
 
-Контракт строго типизирован, копии лежат в папках сервисов.
+Копии proto для сборки контейнеров:
+```text
+hw3-flight-booking/booking-service/flight.proto
+hw3-flight-booking/flight-service/flight.proto
+```
+
+---
 
 ## 4. Реализовал REST API в Booking Service
 
-Эндпоинты:
+Booking Service я сделал на FastAPI.
 
-GET /routes – поиск рейсов (прокси на FindRoutes)
+Он предоставляет следующие endpoints:
 
-GET /routes/{id} – получение рейса (GetRoute)
+- `GET /flights`
+- `GET /flights/{flight_id}`
+- `POST /bookings`
+- `GET /bookings/{booking_id}`
+- `POST /bookings/{booking_id}/cancel`
+- `GET /bookings?user_id=...`
 
-POST /reservations – создание бронирования
+Через эти endpoints клиент взаимодействует только с REST API, а дальше Booking Service уже сам общается с Flight Service через gRPC.
 
-GET /reservations/{id} – получение бронирования
+### Что важно
 
-POST /reservations/{id}/cancel – отмена бронирования
+Я также добавил валидацию `booking_id`, чтобы при передаче некорректного UUID сервис возвращал **400 Bad Request**, а не падал с 500 ошибкой.
 
-GET /reservations?user_id=... – список бронирований пользователя
+### Где это реализовано
 
-Добавлена валидация UUID для reservation_id, возвращается 400 при некорректном формате.
+```text
+hw3-flight-booking/booking-service/main.py
+```
 
-Файл: reservation-service/main.py
+Ключевое место:
+- функция `parse_booking_uuid()`
+- обработчики `/bookings/{booking_id}`
+- обработчик `/bookings/{booking_id}/cancel`
+
+---
 
 ## 5. Реализовал логику Flight Service и работу с местами
 
-gRPC сервер обрабатывает:
+Flight Service я сделал как gRPC сервер.
 
-FindRoutes – поиск активных рейсов по маршруту и дате
+Он обрабатывает:
 
-GetRoute – получение рейса по ID (с кешированием)
+### `SearchFlights`
+Поиск рейсов по маршруту и дате.
 
-HoldSeats – атомарное резервирование мест с SELECT FOR UPDATE и проверкой свободных мест
+### `GetFlight`
+Получение конкретного рейса по ID.
 
-ReleaseHold – освобождение мест при отмене
+### `ReserveSeats`
+Атомарное резервирование мест.
 
-Транзакции обеспечивают целостность: уменьшение free_seats и создание seat_holds в одной транзакции.
+### `ReleaseReservation`
+Освобождение мест при отмене бронирования.
 
-Файл: airline-service/main.py
+Для бронирования я использовал транзакцию и блокировку строки рейса через:
+
+```sql
+SELECT * FROM flights WHERE id = $1 FOR UPDATE
+```
+
+Это нужно, чтобы два параллельных запроса не смогли одновременно забрать одни и те же места.
+
+### Где это реализовано
+
+```text
+hw3-flight-booking/flight-service/main.py
+```
+
+Ключевые места:
+- метод `ReserveSeats`
+- метод `ReleaseReservation`
+
+---
 
 ## 6. Реализовал идемпотентность резервирования
 
-Использован reservation_id (UUID) как идемпотентный ключ.
-Перед созданием нового holds сервис проверяет существующую запись с таким reservation_id. Если она есть – возвращает её, не изменяя места повторно.
+Один из важных пунктов — сделать резервирование идемпотентным.
 
-Уникальность reservation_id обеспечена на уровне БД (UNIQUE в таблице seat_holds).
+Я использовал `booking_id` как идемпотентный ключ.
+
+Перед созданием нового резерва Flight Service сначала проверяет, есть ли уже запись в `seat_reservations` с таким `booking_id`. Если запись уже существует, сервис не уменьшает места повторно, а возвращает уже существующую резервацию.
+
+Это защищает систему от повторного выполнения одного и того же запроса.
+
+### Где это реализовано
+
+```text
+hw3-flight-booking/flight-service/main.py
+```
+
+Ключевое место:
+- начало метода `ReserveSeats`
+- проверка `existing = await conn.fetchrow(...)`
+
+Также уникальность `booking_id` поддерживается на уровне БД:
+
+```text
+hw3-flight-booking/flight-service/migrations/V1__init.sql
+```
+
+---
 
 ## 7. Добавил авторизацию между сервисами через API key
 
-На стороне клиента (Reservation Service): перехватчик ApiKeyInterceptor добавляет заголовок x-api-key ко всем gRPC вызовам.
+Чтобы запретить прямые вызовы Flight Service без внутреннего ключа, я добавил передачу `x-api-key` в gRPC metadata.
 
-На стороне сервера (Airline Service): перехватчик AuthInterceptor проверяет наличие и корректность ключа. При неверном ключе возвращается UNAUTHENTICATED.
+### Как это сделано
 
-Ключ передаётся через переменные окружения SERVICE_SECRET.
+#### На стороне клиента
+В Booking Service я реализовал `ApiKeyInterceptor`, который автоматически добавляет ключ ко всем gRPC вызовам.
+
+#### На стороне сервера
+Во Flight Service я реализовал `AuthInterceptor`, который проверяет `x-api-key` и отклоняет запросы без корректного значения.
+
+### Где это реализовано
+
+Клиентский interceptor:
+```text
+hw3-flight-booking/booking-service/grpc_client.py
+```
+
+Серверный interceptor:
+```text
+hw3-flight-booking/flight-service/main.py
+```
+
+---
 
 ## 8. Добавил retry с exponential backoff
 
-В Reservation Service для gRPC-вызовов реализованы повторные попытки с помощью библиотеки tenacity (вместо ручного цикла).
+Для временных сбоев сети и недоступности Flight Service я реализовал retry-логику в Booking Service.
 
-Максимум 3 попытки
+Retry выполняется только для ошибок:
 
-Exponential backoff: 100ms, 200ms, 400ms
+- `UNAVAILABLE`
+- `DEADLINE_EXCEEDED`
 
-Retry только для UNAVAILABLE и DEADLINE_EXCEEDED
+Retry **не выполняется** для бизнес-ошибок:
 
-Без retry для NOT_FOUND, RESOURCE_EXHAUSTED, INVALID_ARGUMENT
+- `NOT_FOUND`
+- `RESOURCE_EXHAUSTED`
+- `INVALID_ARGUMENT`
 
-Идемпотентность гарантирована через reservation_id
+Схема backoff:
+- 0.1 сек
+- 0.2 сек
+- 0.4 сек
 
-Файл: reservation-service/grpc_client.py (функция call_with_retry)
+### Где это реализовано
+
+```text
+hw3-flight-booking/booking-service/grpc_client.py
+```
+
+Ключевое место:
+- функция `grpc_call_with_retry()`
+
+### Тесты
+
+Я отдельно написал тесты на retry:
+- повтор при `UNAVAILABLE`
+- отсутствие retry при бизнес-ошибках
+- успешный второй вызов
+- проверка exponential backoff
+
+Файлы:
+```text
+hw3-flight-booking/tests/test_retry.py
+hw3-flight-booking/tests/conftest.py
+```
+
+---
 
 ## 9. Добавил Redis кеширование
 
-В Airline Service используется Redis (стратегия Cache-Aside):
+Чтобы снизить нагрузку на БД Flight Service, я реализовал кеширование в Redis.
 
-Ключи:
+### Что кешируется
+- результат `GetFlight`
+- результат `SearchFlights`
 
-route:{id} – информация о рейсе (TTL 600 сек)
+### Подход
+Я использовал стратегию **Cache-Aside**:
+1. Сначала проверяю Redis
+2. Если кеша нет — иду в PostgreSQL
+3. Записываю результат в Redis с TTL
+4. При изменениях инвалидирую связанный кеш
 
-find:{from}:{to}:{date} – результаты поиска (TTL 600 сек)
+### TTL
+```text
+CACHE_TTL = 600
+```
 
-При cache miss выполняется запрос к PostgreSQL, результат сохраняется в Redis.
+### Инвалидация
+После `ReserveSeats` и `ReleaseReservation` я:
+- удаляю кеш конкретного рейса
+- удаляю все поисковые ключи `search:*`
 
-Инвалидация после HoldSeats / ReleaseHold:
+### Где это реализовано
 
-удаляется ключ route:{id}
+```text
+hw3-flight-booking/flight-service/main.py
+```
 
-удаляются все ключи find:* (итерация через SCAN)
+Ключевые места:
+- `get_redis()`
+- `SearchFlights`
+- `GetFlight`
+- `ReserveSeats`
+- `ReleaseReservation`
 
-Логирование cache hit/miss добавлено.
-
-Файл: airline-service/main.py (функции get_redis, кеширующие методы)
+---
 
 ## 10. Добавил Redis Sentinel и проверил failover
 
-Redis работает в отказоустойчивой конфигурации:
+После обычного Redis я расширил решение до отказоустойчивой схемы:
 
-redis-master
+- `redis-master`
+- `redis-replica`
+- `redis-sentinel`
 
-redis-replica
+Теперь Flight Service работает не с обычным Redis напрямую, а через Sentinel и получает master через имя:
 
-redis-sentinel (с конфигурацией для автоматического переключения)
+```text
+mymaster
+```
 
-Airline Service поддерживает два режима:
+### Что я сделал
 
-REDIS_MODE=standalone – прямое подключение к хосту/порту
+В `docker-compose.yml` я добавил:
+- контейнер master
+- контейнер replica
+- контейнер sentinel
 
-REDIS_MODE=sentinel – подключение через Sentinel по имени мастера (mymaster)
+Во Flight Service я добавил режим работы:
 
-При потере соединения с Redis клиент автоматически переподключается (функция reset_redis / redis_call).
+- `REDIS_MODE=standalone`
+- `REDIS_MODE=sentinel`
 
-Проверка failover: остановка мастера приводит к переключению на реплику, сервис продолжает работать.
+Когда включен режим `sentinel`, сервис подключается через:
+
+- `REDIS_SENTINEL_HOST`
+- `REDIS_SENTINEL_PORT`
+- `REDIS_MASTER_NAME`
+
+### Где это реализовано
+
+Compose:
+```text
+hw3-flight-booking/docker-compose.yml
+```
+
+Подключение через Sentinel:
+```text
+hw3-flight-booking/flight-service/main.py
+```
+
+Ключевые места:
+- переменные `REDIS_MODE`, `REDIS_MASTER_NAME`, `REDIS_SENTINEL_HOST`
+- ветка `if REDIS_MODE == "sentinel":`
+
+---
 
 ## 11. Реализовал circuit breaker
 
-В Reservation Service добавлен Circuit Breaker (вынесен в отдельный модуль circuit_breaker.py).
+Чтобы Booking Service не продолжал бесконечно дергать недоступный Flight Service, я реализовал **Circuit Breaker**.
 
-Состояния: CLOSED, OPEN, HALF_OPEN.
-Логика:
+Состояния:
+- `CLOSED`
+- `OPEN`
+- `HALF_OPEN`
 
-В CLOSED считаются ошибки за окно (размер настраивается). При превышении порога – переход в OPEN.
+### Логика
+- пока ошибок мало — состояние `CLOSED`
+- если в окне накопилось достаточно неуспешных вызовов — `OPEN`
+- после таймаута делается пробный запрос — `HALF_OPEN`
+- если пробный запрос успешен — возвращаемся в `CLOSED`
 
-В OPEN все вызовы мгновенно завершаются исключением CircuitOpenError.
+### Параметры
+Задаются через environment variables:
 
-Через таймаут (reset_timeout) переходим в HALF_OPEN, пропускаем один пробный запрос. При успехе – CLOSED, при ошибке – снова OPEN.
+- `CB_FAILURE_THRESHOLD`
+- `CB_RESET_TIMEOUT`
+- `CB_WINDOW_SIZE`
 
-Параметры задаются через переменные окружения:
+### Где это реализовано
 
-CB_FAILURE_THRESHOLD
+```text
+hw3-flight-booking/booking-service/grpc_client.py
+```
 
-CB_RESET_TIMEOUT
+Ключевые места:
+- класс `CircuitBreaker`
+- исключение `CircuitBreakerOpenError`
+- интеграция в `grpc_call_with_retry()`
 
-CB_WINDOW_SIZE
+И обработка в REST API:
+```text
+hw3-flight-booking/booking-service/main.py
+```
 
-В REST API ошибка circuit breaker преобразуется в 503 Service Unavailable.
-
-Файлы: reservation-service/circuit_breaker.py, reservation-service/grpc_client.py, reservation-service/main.py
+---
 
 ## 12. Исправил проблему после failover Redis
 
-Во время проверки Sentinel была обнаружена проблема: после переключения мастера старое соединение становилось невалидным.
-Доработана функция redis_call: при возникновении RedisConnectionError соединение сбрасывается (reset_redis) и выполняется повторная попытка получить соединение через Sentinel. Это гарантирует корректную работу после failover.
+Во время проверки failover я обнаружил важный момент: после переключения master старое Redis-соединение внутри Flight Service могло стать невалидным.
+
+Из-за этого сервис получал ошибку вида:
+- `Connection closed by server`
+
+После этого я доработал `flight-service/main.py`, чтобы Redis-клиент корректно переподключался после failover и не падал на старом соединении.
+
+### Где это исправлено
+
+```text
+hw3-flight-booking/flight-service/main.py
+```
+
+Это была доработка поверх базовой Sentinel-схемы, чтобы система реально переживала переключение мастера.
+
+---
 
 ## Как запускать проект
 
@@ -305,7 +528,7 @@ hw3-flight-booking
 docker compose up --build
 ```
 
-Будут подняты все контейнеры: две БД, Redis (мастер+реплика+sentinel), Airline Service (gRPC на порту 50051), Reservation Service (REST на порту 8000), а также Flyway для миграций.
+---
 
 ## Как проверять
 
@@ -313,56 +536,65 @@ docker compose up --build
 
 Получить рейс:
 ```bash
-curl http://localhost:8000/routes/1
+curl http://localhost:8000/flights/1
 ```
 
 Поиск рейсов:
 ```bash
-curl "http://localhost:8000/routes?origin=SVO&destination=LED"
+curl "http://localhost:8000/flights?origin=SVO&destination=LED"
 ```
 
 Создать бронирование:
 ```bash
-curl -X POST "http://localhost:8000/reservations" \
+curl -X POST "http://localhost:8000/bookings" \
   -H "Content-Type: application/json" \
   -d '{
     "user_id": "u1",
-    "route_id": 1,
+    "flight_id": 1,
     "passenger_name": "Ivan Ivanov",
     "passenger_email": "ivan@example.com",
-    "seats": 2
+    "seat_count": 2
   }'
 ```
 
 Получить бронирование:
 ```bash
-curl "http://localhost:8000/reservations/<RESERVATION_ID>"
+curl "http://localhost:8000/bookings/<BOOKING_ID>"
 ```
 
 Отменить бронирование:
 ```bash
-curl -X POST "http://localhost:8000/reservations/<RESERVATION_ID>/cancel"
+curl -X POST "http://localhost:8000/bookings/<BOOKING_ID>/cancel"
 ```
+
+---
 
 ## Проверка retry и circuit breaker
 
-Остановить Airline Service:
+Остановить Flight Service:
 ```bash
-docker compose stop airline-service
+docker compose stop flight-service
 ```
 
-Выполнить несколько запросов к /routes/1:
+Сделать несколько запросов:
+```bash
+curl http://localhost:8000/flights/1
+```
 
-Первые запросы будут пытаться повториться (retry), затем circuit breaker откроется.
+Ожидаемое поведение:
+- сначала идут retry
+- потом circuit breaker открывается
+- следующие запросы начинают возвращать `503 Service Unavailable`
 
-После открытия CB запросы сразу возвращают 503 Service Unavailable.
-
-Запустить сервис обратно:
+После восстановления сервиса:
 ```bash
 docker compose start flight-service
 ```
 
-Повторный запрос должен восстановить работу (CB перейдёт HALF_OPEN - CLOSED).
+Circuit breaker должен перейти:
+- `OPEN -> HALF_OPEN -> CLOSED`
+
+---
 
 ## Проверка Redis Sentinel failover
 
@@ -376,59 +608,65 @@ docker compose exec redis-sentinel redis-cli -p 26379 SENTINEL get-master-addr-b
 docker compose stop redis-master
 ```
 
-Через несколько секунд проверить нового мастера:
+Подождать несколько секунд и снова проверить:
 ```bash
 docker compose exec redis-sentinel redis-cli -p 26379 SENTINEL get-master-addr-by-name mymaster
 ```
 
-Должен отобразиться адрес реплики, ставшей мастером.
+Ожидаемо Sentinel должен переключить master на replica.
 
-Запрос к Airline Service (например, GET /routes/1 через Reservation Service) должен продолжать работать, данные кеша могут временно отсутствовать (cache miss), но затем кеш заполнится заново.
+---
 
 ## Тесты
 
-Тесты на retry-логику и circuit breaker находятся в папке tests/. Для запуска:
+Запуск тестов:
 ```bash
 cd tests
 python3 -m pytest -v
 ```
-Тесты используют моки для gRPC и проверяют поведение при разных ошибках.
 
-## Изменения
+У меня тесты покрывают retry-логику и backoff.
 
-### Airline Service
-- `airline-service/main.py` – переименованы классы, методы, добавлена инвалидация find:*
-- `airline-service/db.py` – без изменений
-- `airline-service/migrations/V1__init.sql` – таблицы routes, seat_holds
-- `airline-service/requirements.txt` – добавлена tenacity
+---
 
-### Reservation Service
-- `reservation-service/main.py` – новые названия эндпоинтов и вызовы
-- `reservation-service/grpc_client.py` – retry через tenacity, вызов circuit breaker
-- `reservation-service/circuit_breaker.py` – новый модуль
-- `reservation-service/db.py` – без изменений
-- `reservation-service/migrations/V1__init.sql` – таблица reservations
-- `reservation-service/requirements.txt` – добавлена tenacity
+## Основные файлы, которые я менял
+
+### Flight Service
+- `hw3-flight-booking/flight-service/main.py`
+- `hw3-flight-booking/flight-service/db.py`
+- `hw3-flight-booking/flight-service/migrations/V1__init.sql`
+
+### Booking Service
+- `hw3-flight-booking/booking-service/main.py`
+- `hw3-flight-booking/booking-service/grpc_client.py`
+- `hw3-flight-booking/booking-service/db.py`
+- `hw3-flight-booking/booking-service/migrations/V1__init.sql`
 
 ### Контракты и инфраструктура
-- `proto/airline.proto` – новое имя, переименованы сообщения
-- `docker-compose.yml` – новые имена сервисов и переменные окружения
-- `er-diagram.mmd` – обновлена
+- `hw3-flight-booking/proto/flight.proto`
+- `hw3-flight-booking/docker-compose.yml`
+- `hw3-flight-booking/er-diagram.mmd`
 
 ### Тесты
-- `tests/test_retry.py` – адаптированы под новые импорты
+- `hw3-flight-booking/tests/test_retry.py`
+- `hw3-flight-booking/tests/conftest.py`
+
+---
 
 ## Итог
 
-В результате получилась полноценная микросервисная система, которая:
+В результате я собрал полноценную микросервисную систему, в которой есть:
 
-- Использует gRPC для строго типизированного взаимодействия
-- Разделяет данные между сервисами (каждый со своей БД)
-- Обеспечивает транзакционную целостность при резервировании мест
-- Гарантирует идемпотентность операций
-- Защищена внутренней аутентификацией
-- Устойчива к сетевым сбоям благодаря retry и circuit breaker
-- Снижает нагрузку на БД с помощью кеширования в Redis
-- Переживает отказ Redis-мастера благодаря Sentinel
+- REST API для клиента
+- gRPC взаимодействие между сервисами
+- две отдельные БД
+- транзакционное резервирование мест
+- идемпотентность
+- внутренняя авторизация по API key
+- retry с exponential backoff
+- circuit breaker
+- кеширование в Redis
+- Redis Sentinel с failover
+- тесты на retry-механику
 
 То есть я не просто поднял два сервиса, а довел решение до состояния, где оно уже умеет переживать сбои зависимостей и корректно работать при частичных отказах.
