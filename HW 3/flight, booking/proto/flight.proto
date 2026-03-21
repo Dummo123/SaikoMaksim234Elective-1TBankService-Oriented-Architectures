@@ -4,69 +4,65 @@ package flight;
 
 import "google/protobuf/timestamp.proto";
 
-// ───────────────────────────────────────────
-// Enums
-// ───────────────────────────────────────────
+// ------------------------------------
+// Status enumerations
+// ------------------------------------
 
 enum FlightStatus {
   FLIGHT_STATUS_UNSPECIFIED = 0;
-  SCHEDULED = 1;
-  DEPARTED = 2;
-  CANCELLED = 3;
-  COMPLETED = 4;
+  SCHEDULED   = 1;
+  DEPARTED    = 2;
+  CANCELLED   = 3;
+  COMPLETED   = 4;
 }
 
 enum ReservationStatus {
   RESERVATION_STATUS_UNSPECIFIED = 0;
-  ACTIVE = 1;
+  ACTIVE   = 1;
   RELEASED = 2;
-  EXPIRED = 3;
+  EXPIRED  = 3;
 }
 
-// ───────────────────────────────────────────
-// Core messages
-// ───────────────────────────────────────────
+// ------------------------------------
+// Domain messages
+// ------------------------------------
 
 message Flight {
-  int64  id               = 1;
-  string flight_number    = 2;  // e.g. "SU1234"
-  string airline          = 3;
-  string origin           = 4;  // IATA code e.g. "SVO"
-  string destination      = 5;  // IATA code e.g. "LED"
-  google.protobuf.Timestamp departure_time  = 6;
-  google.protobuf.Timestamp arrival_time    = 7;
-  int32  total_seats      = 8;
-  int32  available_seats  = 9;
-  double price            = 10;
-  FlightStatus status     = 11;
+  int64  id              = 1;
+  string flight_number   = 2;
+  string airline         = 3;
+  string origin          = 4;
+  string destination     = 5;
+  google.protobuf.Timestamp departure_time = 6;
+  google.protobuf.Timestamp arrival_time   = 7;
+  int32  total_seats     = 8;
+  int32  available_seats = 9;
+  double price           = 10;
+  FlightStatus status    = 11;
 }
 
 message SeatReservation {
-  int64             id          = 1;
-  int64             flight_id   = 2;
-  string            booking_id  = 3;  // UUID из Booking Service
-  int32             seat_count  = 4;
-  ReservationStatus status      = 5;
-  google.protobuf.Timestamp created_at = 6;
+  int64             id         = 1;
+  int64             flight_id  = 2;
+  string            booking_id = 3;
+  int32             seat_count = 4;
+  ReservationStatus status     = 5;
+  google.protobuf.Timestamp reserved_at = 6;
 }
 
-// ───────────────────────────────────────────
-// SearchFlights
-// ───────────────────────────────────────────
+// ------------------------------------
+// RPC request / response types
+// ------------------------------------
 
 message SearchFlightsRequest {
   string origin      = 1;
   string destination = 2;
-  string date        = 3;  // опционально, формат "2026-04-01"
+  string date        = 3;
 }
 
 message SearchFlightsResponse {
   repeated Flight flights = 1;
 }
-
-// ───────────────────────────────────────────
-// GetFlight
-// ───────────────────────────────────────────
 
 message GetFlightRequest {
   int64 flight_id = 1;
@@ -76,46 +72,38 @@ message GetFlightResponse {
   Flight flight = 1;
 }
 
-// ───────────────────────────────────────────
-// ReserveSeats
-// ───────────────────────────────────────────
-
 message ReserveSeatsRequest {
-  int64  flight_id   = 1;
-  int32  seat_count  = 2;
-  string booking_id  = 3;  // UUID, нужен для идемпотентности (п.8)
+  int64  flight_id  = 1;
+  int32  seat_count = 2;
+  string booking_id = 3;
 }
 
 message ReserveSeatsResponse {
   SeatReservation reservation = 1;
 }
 
-// ───────────────────────────────────────────
-// ReleaseReservation
-// ───────────────────────────────────────────
-
 message ReleaseReservationRequest {
   string booking_id = 1;
 }
 
 message ReleaseReservationResponse {
-  bool success = 1;
+  bool released = 1;
 }
 
-// ───────────────────────────────────────────
+// ------------------------------------
 // Service definition
-// ───────────────────────────────────────────
+// ------------------------------------
 
 service FlightService {
-  // Поиск рейсов по маршруту и дате
+  // Search flights by route and optional date; returns only SCHEDULED
   rpc SearchFlights(SearchFlightsRequest) returns (SearchFlightsResponse);
 
-  // Получение рейса по ID — NOT_FOUND если не существует
+  // Fetch single flight — NOT_FOUND if absent
   rpc GetFlight(GetFlightRequest) returns (GetFlightResponse);
 
-  // Атомарное резервирование мест — RESOURCE_EXHAUSTED если мест нет
+  // Atomically reserve seats — RESOURCE_EXHAUSTED if not enough seats
   rpc ReserveSeats(ReserveSeatsRequest) returns (ReserveSeatsResponse);
 
-  // Отмена резервации — возврат мест
+  // Release an active reservation and restore seat count
   rpc ReleaseReservation(ReleaseReservationRequest) returns (ReleaseReservationResponse);
 }
