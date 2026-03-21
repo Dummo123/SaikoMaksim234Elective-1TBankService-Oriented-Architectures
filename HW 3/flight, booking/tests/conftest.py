@@ -1,6 +1,6 @@
 import sys
 from unittest.mock import MagicMock
 
-# Мокаем сгенерированные protobuf модули — они есть только внутри Docker
-sys.modules['flight_pb2'] = MagicMock()
-sys.modules['flight_pb2_grpc'] = MagicMock()
+# Protobuf modules are generated inside Docker — mock them for local test runs
+sys.modules["flight_pb2"]      = MagicMock()
+sys.modules["flight_pb2_grpc"] = MagicMock()
