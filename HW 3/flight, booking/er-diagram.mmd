@@ -1,37 +1,37 @@
 erDiagram
     FLIGHTS {
-        bigserial   id              PK
+        bigserial   id               PK
         varchar     flight_number
         varchar     airline
-        varchar     origin_code
-        varchar     destination_code
-        timestamptz departure_time
-        timestamptz arrival_time
+        varchar     origin_iata
+        varchar     destination_iata
+        timestamptz departs_at
+        timestamptz arrives_at
         int         total_seats
         int         available_seats
-        numeric     price
-        varchar     status
+        numeric     ticket_price
+        varchar     flight_status
     }
 
     SEAT_RESERVATIONS {
         bigserial   id          PK
         bigint      flight_id   FK
-        uuid        booking_id
-        int         seat_count
-        varchar     status
-        timestamptz created_at
+        uuid        booking_ref
+        int         seats_held
+        varchar     rsv_status
+        timestamptz reserved_at
     }
 
     BOOKINGS {
         uuid        id              PK
-        varchar     user_id
+        varchar     customer_id
         bigint      flight_id
-        varchar     passenger_name
-        varchar     passenger_email
+        varchar     traveller_name
+        varchar     traveller_email
         int         seat_count
-        numeric     total_price
-        varchar     status
+        numeric     total_cost
+        varchar     booking_status
         timestamptz created_at
     }
 
-    FLIGHTS ||--o{ SEAT_RESERVATIONS : "has reservations"
+    FLIGHTS ||--o{ SEAT_RESERVATIONS : "reserves seats for"

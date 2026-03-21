@@ -1,31 +1,34 @@
 services:
-  flight-db:
+
+  # ── Databases ──────────────────────────────────────────────────────────
+  flights-db:
     image: postgres:15
     environment:
-      POSTGRES_DB: flight_db
-      POSTGRES_USER: flight_user
-      POSTGRES_PASSWORD: flight_pass
+      POSTGRES_DB:       flights_db
+      POSTGRES_USER:     flights_svc
+      POSTGRES_PASSWORD: flights_secret
     ports:
-      - "5435:5432"
+      - "5441:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U flight_user -d flight_db"]
+      test: ["CMD-SHELL", "pg_isready -U flights_svc -d flights_db"]
       interval: 5s
-      retries: 5
+      retries: 6
 
-  booking-db:
+  bookings-db:
     image: postgres:15
     environment:
-      POSTGRES_DB: booking_db
-      POSTGRES_USER: booking_user
-      POSTGRES_PASSWORD: booking_pass
+      POSTGRES_DB:       bookings_db
+      POSTGRES_USER:     bookings_svc
+      POSTGRES_PASSWORD: bookings_secret
     ports:
-      - "5434:5432"
+      - "5442:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U booking_user -d booking_db"]
+      test: ["CMD-SHELL", "pg_isready -U bookings_svc -d bookings_db"]
       interval: 5s
-      retries: 5
+      retries: 6
 
-  redis-master:
+  # ── Redis Sentinel cluster ─────────────────────────────────────────────
+  redis-primary:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
     healthcheck:
@@ -33,14 +36,14 @@ services:
       interval: 5s
       retries: 10
 
-  redis-replica:
+  redis-secondary:
     image: redis:7-alpine
     depends_on:
-      redis-master:
+      redis-primary:
         condition: service_healthy
-    command: ["redis-server", "--replicaof", "redis-master", "6379"]
+    command: ["redis-server", "--replicaof", "redis-primary", "6379"]
     ports:
-      - "6380:6379"
+      - "6381:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -49,68 +52,81 @@ services:
   redis-sentinel:
     image: redis:7-alpine
     depends_on:
-      redis-master:
+      redis-primary:
         condition: service_healthy
-      redis-replica:
+      redis-secondary:
         condition: service_healthy
     ports:
-      - "26379:26379"
+      - "26380:26379"
     command:
       - sh
       - -c
       - |
-        cat > /tmp/sentinel.conf <<CONF
+        cat > /tmp/sentinel.conf <<EOF
         port 26379
         bind 0.0.0.0
         sentinel resolve-hostnames yes
         sentinel announce-hostnames yes
-        sentinel monitor mymaster redis-master 6379 1
-        sentinel down-after-milliseconds mymaster 5000
-        sentinel failover-timeout mymaster 10000
-        sentinel parallel-syncs mymaster 1
-        CONF
+        sentinel monitor primary redis-primary 6379 1
+        sentinel down-after-milliseconds primary 5000
+        sentinel failover-timeout primary 10000
+        sentinel parallel-syncs primary 1
+        EOF
         exec redis-sentinel /tmp/sentinel.conf
     healthcheck:
       test: ["CMD", "redis-cli", "-p", "26379", "ping"]
       interval: 5s
       retries: 10
 
-  flyway-flight:
+  # ── Migrations ─────────────────────────────────────────────────────────
+  migrate-flights:
     image: flyway/flyway:9
-    command: -url=jdbc:postgresql://flight-db:5432/flight_db -user=flight_user -password=flight_pass -locations=filesystem:/flyway/sql migrate
+    command: >
+      -url=jdbc:postgresql://flights-db:5432/flights_db
+      -user=flights_svc
+      -password=flights_secret
+      -locations=filesystem:/flyway/sql
+      migrate
     volumes:
       - ./flight-service/migrations:/flyway/sql
     depends_on:
-      flight-db:
+      flights-db:
         condition: service_healthy
 
-  flyway-booking:
+  migrate-bookings:
     image: flyway/flyway:9
-    command: -url=jdbc:postgresql://booking-db:5432/booking_db -user=booking_user -password=booking_pass -locations=filesystem:/flyway/sql migrate
+    command: >
+      -url=jdbc:postgresql://bookings-db:5432/bookings_db
+      -user=bookings_svc
+      -password=bookings_secret
+      -locations=filesystem:/flyway/sql
+      migrate
     volumes:
       - ./booking-service/migrations:/flyway/sql
     depends_on:
-      booking-db:
+      bookings-db:
         condition: service_healthy
 
+  # ── Application services ───────────────────────────────────────────────
   flight-service:
     build: ./flight-service
     environment:
-      DB_HOST: flight-db
-      DB_PORT: 5432
-      DB_NAME: flight_db
-      DB_USER: flight_user
-      DB_PASS: flight_pass
-      GRPC_PORT: 50051
-      INTERNAL_API_KEY: super-secret-key-2026
-      REDIS_MODE: sentinel
-      REDIS_MASTER_NAME: mymaster
-      REDIS_SENTINEL_HOST: redis-sentinel
-      REDIS_SENTINEL_PORT: 26379
+      DB_HOST:              flights-db
+      DB_PORT:              5432
+      DB_NAME:              flights_db
+      DB_USER:              flights_svc
+      DB_PASS:              flights_secret
+      GRPC_PORT:            50051
+      SERVICE_API_KEY:      internal-api-key-2026
+      REDIS_MODE:           sentinel
+      REDIS_MASTER_NAME:    primary
+      REDIS_SENTINEL_HOST:  redis-sentinel
+      REDIS_SENTINEL_PORT:  26379
+      CACHE_TTL_SECONDS:    360
     ports:
       - "50051:50051"
     depends_on:
-      flyway-flight:
+      migrate-flights:
         condition: service_completed_successfully
       redis-sentinel:
         condition: service_healthy
@@ -118,21 +134,21 @@ services:
   booking-service:
     build: ./booking-service
     environment:
-      DB_HOST: booking-db
-      DB_PORT: 5432
-      DB_NAME: booking_db
-      DB_USER: booking_user
-      DB_PASS: booking_pass
-      FLIGHT_SERVICE_HOST: flight-service
-      FLIGHT_SERVICE_PORT: 50051
-      INTERNAL_API_KEY: super-secret-key-2026
+      DB_HOST:              bookings-db
+      DB_PORT:              5432
+      DB_NAME:              bookings_db
+      DB_USER:              bookings_svc
+      DB_PASS:              bookings_secret
+      FLIGHT_SVC_HOST:      flight-service
+      FLIGHT_SVC_PORT:      50051
+      SERVICE_API_KEY:      internal-api-key-2026
       CB_FAILURE_THRESHOLD: 5
-      CB_RESET_TIMEOUT: 15
-      CB_WINDOW_SIZE: 10
+      CB_RESET_TIMEOUT:     15
+      CB_WINDOW_SIZE:       10
     ports:
-      - "8000:8000"
+      - "8080:8080"
     depends_on:
-      flyway-booking:
+      migrate-bookings:
         condition: service_completed_successfully
       flight-service:
         condition: service_started
