@@ -772,20 +772,6 @@ docker compose exec redis-sentinel redis-cli -p 26379 SENTINEL get-master-addr-b
 
 Теперь в ответе будет адрес redis-secondary — Sentinel переключил master. Flight Service продолжает работать через автопереподключение.
 
-
-Запустить тесты (без Docker)
-
-Тесты запускаются локально, Docker не нужен:
-
-cd tests
-
-pip install -r requirements.txt
-
-python -m pytest test_retry.py -v
-
-Ожидаемый результат: 14 passed. Тесты мокают protobuf через conftest.py, поэтому работают без запущенного Docker.
-
-
 Посмотреть данные в БД (PostgreSQL)
 
 Можно подключиться к любой БД напрямую из контейнера:
