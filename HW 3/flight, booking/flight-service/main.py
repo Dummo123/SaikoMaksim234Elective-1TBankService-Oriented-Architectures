@@ -267,9 +267,12 @@ class FlightServicer(flight_pb2_grpc.FlightServiceServicer):
         """
         params = [request.origin, request.destination]
 
+        from datetime import datetime
+
         if request.date:
+            date_obj = datetime.strptime(request.date, "%Y-%m-%d").date()
             sql += " AND DATE(departs_at AT TIME ZONE 'UTC') = $3"
-            params.append(request.date)
+            params.append(date_obj)
 
         async with pool.acquire() as conn:
             rows = await conn.fetch(sql, *params)
