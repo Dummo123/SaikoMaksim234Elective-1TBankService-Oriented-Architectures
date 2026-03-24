@@ -15,8 +15,6 @@ Client (REST) → Booking Service → (gRPC) → Flight Service
                  PostgreSQL               PostgreSQL + Redis (Sentinel)
 ```
 
----
-
 ## ER-диаграмма
 
 ```mermaid
@@ -65,8 +63,6 @@ ER-диаграмму я вынес в отдельный файл:
 hw3-flight-booking/er-diagram.mmd
 ```
 
----
-
 ## Структура проекта
 
 ```text
@@ -97,8 +93,6 @@ hw3-flight-booking/
 ├── er-diagram.mmd
 └── README.md
 ```
-
----
 
 ## Что именно я реализовал по пунктам задания
 
@@ -133,8 +127,6 @@ SQL-схема Booking Service:
 hw3-flight-booking/booking-service/migrations/V1__init.sql
 ```
 
----
-
 ## 2. Поднял два отдельных сервиса и две отдельные базы данных
 
 Я разнёс систему на два сервиса:
@@ -167,8 +159,6 @@ hw3-flight-booking/booking-service/
 hw3-flight-booking/flight-service/
 ```
 
----
-
 ## 3. Описал gRPC контракт между сервисами
 
 Для связи между сервисами я описал protobuf-контракт.
@@ -196,8 +186,6 @@ hw3-flight-booking/proto/flight.proto
 hw3-flight-booking/booking-service/flight.proto
 hw3-flight-booking/flight-service/flight.proto
 ```
-
----
 
 ## 4. Реализовал REST API в Booking Service
 
@@ -228,8 +216,6 @@ hw3-flight-booking/booking-service/main.py
 - функция `_parse_uuid()`
 - обработчики `/bookings/{booking_id}`
 - обработчик `/bookings/{booking_id}/cancel`
-
----
 
 ## 5. Реализовал логику Flight Service и работу с местами
 
@@ -267,8 +253,6 @@ hw3-flight-booking/flight-service/main.py
 - метод `ReserveSeats`
 - метод `ReleaseReservation`
 
----
-
 ## 6. Реализовал идемпотентность резервирования
 
 Один из важных пунктов — сделать резервирование идемпотентным.
@@ -295,8 +279,6 @@ hw3-flight-booking/flight-service/main.py
 hw3-flight-booking/flight-service/migrations/V1__init.sql
 ```
 
----
-
 ## 7. Добавил авторизацию между сервисами через API key
 
 Чтобы запретить прямые вызовы Flight Service без внутреннего ключа, я добавил передачу `x-api-key` в gRPC metadata.
@@ -320,8 +302,6 @@ hw3-flight-booking/booking-service/grpc_client.py
 ```text
 hw3-flight-booking/flight-service/main.py
 ```
-
----
 
 ## 8. Добавил retry с exponential backoff
 
@@ -366,8 +346,6 @@ hw3-flight-booking/tests/test_retry.py
 hw3-flight-booking/tests/conftest.py
 ```
 
----
-
 ## 9. Добавил Redis кеширование
 
 Чтобы снизить нагрузку на БД Flight Service, я реализовал кеширование в Redis.
@@ -403,8 +381,6 @@ hw3-flight-booking/flight-service/main.py
 - `get_redis()` / `redis_op()`
 - `_evict_search_keys()`
 - методы `SearchFlights`, `GetFlight`, `ReserveSeats`, `ReleaseReservation`
-
----
 
 ## 10. Добавил Redis Sentinel и поддержку failover
 
@@ -455,8 +431,6 @@ hw3-flight-booking/flight-service/main.py
 - ветка `if REDIS_MODE == "sentinel":`
 - функция `_reset_redis()` — автопереподключение после failover
 
----
-
 ## 11. Реализовал Circuit Breaker
 
 Чтобы Booking Service не продолжал бесконечно дёргать недоступный Flight Service, я реализовал **Circuit Breaker**.
@@ -495,8 +469,6 @@ hw3-flight-booking/booking-service/grpc_client.py
 hw3-flight-booking/booking-service/main.py
 ```
 
----
-
 ## Как запускать проект
 
 Из директории:
@@ -509,8 +481,6 @@ hw3-flight-booking
 ```bash
 docker compose up --build
 ```
-
----
 
 ## Как проверять
 
@@ -586,8 +556,6 @@ docker compose start flight-service
 Circuit breaker должен перейти:
 - `OPEN -> HALF_OPEN -> CLOSED`
 
----
-
 ## Проверка Redis Sentinel failover
 
 Посмотреть master:
@@ -607,8 +575,6 @@ docker compose exec redis-sentinel redis-cli -p 26379 SENTINEL get-master-addr-b
 
 Ожидаемо Sentinel должен переключить master на secondary.
 
----
-
 ## Тесты
 
 Запуск тестов:
@@ -620,31 +586,231 @@ python -m pytest test_retry.py -v
 
 У меня тесты покрывают retry-логику, backoff и все переходы состояний Circuit Breaker.
 
----
+Гайд
 
-## Основные файлы, которые я менял
+Проверить в терминале:
 
-### Flight Service
-- `hw3-flight-booking/flight-service/main.py`
-- `hw3-flight-booking/flight-service/db.py`
-- `hw3-flight-booking/flight-service/migrations/V1__init.sql`
+docker --version
 
-### Booking Service
-- `hw3-flight-booking/booking-service/main.py`
-- `hw3-flight-booking/booking-service/grpc_client.py`
-- `hw3-flight-booking/booking-service/db.py`
-- `hw3-flight-booking/booking-service/migrations/V1__init.sql`
+docker compose version
 
-### Контракты и инфраструктура
-- `hw3-flight-booking/proto/flight.proto`
-- `hw3-flight-booking/docker-compose.yml`
-- `hw3-flight-booking/er-diagram.mmd`
+Ожидаемый вывод: Docker version 24.x.x и Docker Compose version v2.x.x. Если команда не найдена — установите Docker Desktop с сайта docker.com.
 
-### Тесты
-- `hw3-flight-booking/tests/test_retry.py`
-- `hw3-flight-booking/tests/conftest.py`
+Терминал откроется автоматически в корневой папке проекта:
 
----
+# Bash
+
+pwd
+
+# Windows PowerShell
+
+Get-Location
+
+D:\Stohastic Processes\VIdeos\Saiko Maksim HW1 SOA-Reference-Implementation\HW 3\hw3-flight-booking
+
+Если путь неверный — перейти вручную:
+  
+  Windows PS:    cd C:\путь\до\hw3-flight-booking
+
+Выполнить в терминале одну команду:
+
+docker compose up --build
+
+Что происходит в логах в порядке появления:
+
+4.	flights-db и bookings-db — PostgreSQL 15 поднимается, healthcheck pg_isready проходит.
+
+5.	redis-primary — Redis 7 master стартует с --appendonly yes.
+
+6.	redis-secondary — Redis реплика подключается к primary через --replicaof redis-primary 6379.
+
+7.	redis-sentinel — Sentinel генерирует конфиг на лету в shell-скрипте и начинает мониторить primary.
+
+8.	migrate-flights и migrate-bookings — Flyway применяет V1__init.sql к каждой БД. В логах: "Successfully applied 1 migration".
+
+9.	flight-service — gRPC-сервер стартует, подключается к Redis через Sentinel, пишет "Flight Service listening on 0.0.0.0:50051".
+
+10.	booking-service — FastAPI стартует через Uvicorn, пишет "Booking Service ready on :8080".
+
+Первый запуск: 3–7 минут (Docker скачивает python:3.11-slim, postgres:15, redis:7-alpine, flyway/flyway:9).
+Повторные запуски без --build: 15–30 секунд.
+
+Проверить статус контейнеров
+
+Открыть второй терминальный таб (кнопка «+» рядом с вкладкой Terminal):
+
+docker compose ps
+
+Ожидаемый результат: все контейнеры со статусом running или Up. Контейнеры migrate-flights и migrate-bookings показывают Exited (0) — это нормально, они завершаются после применения миграций.
+
+Посмотреть логи конкретного сервиса:
+
+docker compose logs -f flight-service
+
+docker compose logs -f booking-service
+
+Booking Service слушает на порту 8080. Flight Service слушает на порту 50051 (gRPC, недоступен напрямую из браузера).
+
+Поиск рейсов:
+
+# Git Bash
+
+curl "http://localhost:8080/flights?origin=SVO&destination=LED"
+
+# Windows PowerShell
+
+Invoke-RestMethod "http://localhost:8080/flights?origin=SVO&destination=LED"
+
+Ожидаемый ответ: JSON-массив с двумя рейсами SU1001 и SU1002 из seed-данных миграции.
+
+Поиск рейсов с датой:
+
+curl "http://localhost:8080/flights?origin=SVO&destination=LED&date=2026-04-01"
+
+Получить рейс по ID:
+
+curl http://localhost:8080/flights/1
+
+Создать бронирование:
+
+$body = @{
+    customer_id = "user-42"
+    flight_id = 1
+    traveller_name = "Ivan Petrov"
+    traveller_email = "ivan@example.com"
+    seat_count = 2
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:8080/bookings" `
+    -Method Post `
+    -ContentType "application/json" `
+    -Body $body
+
+
+или
+
+Invoke-RestMethod -Uri "http://localhost:8080/bookings" -Method Post -ContentType "application/json" -Body '{"customer_id":"user-42","flight_id":1,"traveller_name":"Ivan Petrov","traveller_email":"ivan@example.com","seat_count":2}'
+
+(дальше копировать id, например "3f32ecfb-8e26-4406-8c2b-1a53fbf434b3")
+
+
+curl "http://localhost:8080/bookings/3f32ecfb-8e26-4406-8c2b-1a53fbf434b3"
+
+Invoke-RestMethod -Uri "http://localhost:8080/bookings/3f32ecfb-8e26-4406-8c2b-1a53fbf434b3/cancel" -Method Post
+
+
+Получить бронирование:
+
+curl "http://localhost:8080/bookings/<UUID>"
+
+Отменить бронирование:
+
+Invoke-RestMethod -Uri "http://localhost:8080/bookings/<UUID>/cancel" -Method Post
+
+Список бронирований пользователя:
+
+curl "http://localhost:8080/bookings?customer_id=user-42"
+
+
+Проверить кеширование Redis
+
+В логах flight-service (docker compose logs -f flight-service) должны появляться:
+
+CACHE MISS search:SVO:LED:          <- первый запрос, идёт в БД
+
+CACHE SET  search:SVO:LED: TTL=360s <- записано в Redis
+
+CACHE HIT  search:SVO:LED:          <- повторный запрос, из Redis
+
+После создания бронирования в логах появится:
+
+CACHE HIT  flight:1
+
+ReserveSeats: flight=1 seats=2 booking_ref=<UUID>
+
+
+Проверить Circuit Breaker
+
+11.	Остановить Flight Service:
+
+docker compose stop flight-service
+
+12.	Сделать несколько запросов (каждый уйдёт в retry, потом откроется Circuit Breaker):
+
+curl http://localhost:8080/flights/1
+
+Первые запросы возвращают 502 после трёх попыток (0.1s -> 0.2s -> 0.4s backoff). После накопления ошибок — немедленный 503 Service Unavailable. В логах booking-service:
+
+CircuitBreaker CLOSED -> OPEN
+
+13.	Восстановить сервис:
+
+docker compose start flight-service
+
+Через 15 секунд (CB_RESET_TIMEOUT) Circuit Breaker перейдёт в HALF_OPEN, сделает один пробный запрос, и при успехе — в CLOSED:
+
+CircuitBreaker OPEN -> HALF_OPEN
+
+CircuitBreaker HALF_OPEN -> CLOSED
+
+
+Проверить Redis Sentinel Failover
+
+14.	Посмотреть текущий master:
+
+docker compose exec redis-sentinel redis-cli -p 26379 SENTINEL get-master-addr-by-name primary
+
+Вывод: IP-адрес и порт текущего Redis master (redis-primary).
+
+15.	Остановить primary:
+
+docker compose stop redis-primary
+
+16.	Подождать 5-10 секунд и снова проверить:
+
+docker compose exec redis-sentinel redis-cli -p 26379 SENTINEL get-master-addr-by-name primary
+
+Теперь в ответе будет адрес redis-secondary — Sentinel переключил master. Flight Service продолжает работать через автопереподключение.
+
+
+Запустить тесты (без Docker)
+
+Тесты запускаются локально, Docker не нужен:
+
+cd tests
+
+pip install -r requirements.txt
+
+python -m pytest test_retry.py -v
+
+Ожидаемый результат: 14 passed. Тесты мокают protobuf через conftest.py, поэтому работают без запущенного Docker.
+
+
+Посмотреть данные в БД (PostgreSQL)
+
+Можно подключиться к любой БД напрямую из контейнера:
+
+# Рейсы и резервации (Flight Service):
+
+docker compose exec flights-db psql -U flights_svc -d flights_db -c 'SELECT * FROM flights;'
+
+docker compose exec flights-db psql -U flights_svc -d flights_db -c 'SELECT * FROM seat_reservations;'
+
+# Бронирования (Booking Service):
+
+docker compose exec bookings-db psql -U bookings_svc -d bookings_db -c 'SELECT * FROM bookings;'
+
+
+Остановить проект
+
+docker compose stop            # остановить без удаления данных
+
+docker compose down            # удалить контейнеры и сети, данные в volumes остаются
+
+docker compose down -v         # полный сброс: удалить всё включая данные БД
+ 
+
+
 
 ## Итог
 
