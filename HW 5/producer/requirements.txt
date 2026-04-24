@@ -1,0 +1,7 @@
+fastapi==0.110.0
+uvicorn[standard]==0.29.0
+confluent-kafka[avro]==2.3.0
+fastavro==1.9.4
+requests==2.31.0
+pydantic==2.6.4
+python-dateutil==2.9.0
