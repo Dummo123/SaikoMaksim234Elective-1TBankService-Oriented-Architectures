@@ -1,0 +1,20 @@
+{
+  "type": "record",
+  "name": "WarehouseEvent",
+  "namespace": "warehouse.events",
+  "doc": "Warehouse operation event V2 — adds supplier_id for backward-compatible schema evolution",
+  "fields": [
+    {"name": "event_id",        "type": "string",                     "doc": "Unique event UUID"},
+    {"name": "event_type",      "type": "string",                     "doc": "Operation type"},
+    {"name": "product_id",      "type": "string",                     "doc": "Product SKU"},
+    {"name": "event_timestamp", "type": "long",                       "doc": "Unix timestamp milliseconds"},
+    {"name": "zone_id",         "type": ["null", "string"],           "default": null},
+    {"name": "quantity",        "type": ["null", "int"],              "default": null},
+    {"name": "order_id",        "type": ["null", "string"],           "default": null},
+    {"name": "from_zone_id",    "type": ["null", "string"],           "default": null},
+    {"name": "to_zone_id",      "type": ["null", "string"],           "default": null},
+    {"name": "order_items",     "type": ["null", "string"],           "default": null},
+    {"name": "supplier_id",     "type": ["null", "string"],           "default": null,
+     "doc": "Supplier identifier — new in V2, null for V1 events"}
+  ]
+}
