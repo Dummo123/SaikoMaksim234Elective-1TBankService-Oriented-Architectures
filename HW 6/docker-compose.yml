@@ -1,0 +1,154 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.5.0
+    depends_on:
+      - kafka
+    environment:
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:9092
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+
+  kafka-setup:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - kafka
+    entrypoint: [ '/bin/sh', '-c' ]
+    command: |
+      "
+      kafka-topics --bootstrap-server kafka:9092 --list
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic warehouse-events --partitions 3 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic warehouse-events-dlq --partitions 1 --replication-factor 1
+      "
+
+  cassandra-1:
+    image: cassandra:4.1
+    container_name: cassandra-1
+    environment:
+      CASSANDRA_SEEDS: cassandra-1
+      CASSANDRA_CLUSTER_NAME: WarehouseCluster
+      CASSANDRA_DC: datacenter1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+    healthcheck:
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+      test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
+
+  cassandra-2:
+    image: cassandra:4.1
+    container_name: cassandra-2
+    depends_on:
+      cassandra-1:
+        condition: service_healthy
+    environment:
+      CASSANDRA_SEEDS: cassandra-1
+      CASSANDRA_CLUSTER_NAME: WarehouseCluster
+      CASSANDRA_DC: datacenter1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+    healthcheck:
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+      test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
+
+  cassandra-3:
+    image: cassandra:4.1
+    container_name: cassandra-3
+    depends_on:
+      cassandra-2:
+        condition: service_healthy
+    environment:
+      CASSANDRA_SEEDS: cassandra-1
+      CASSANDRA_CLUSTER_NAME: WarehouseCluster
+      CASSANDRA_DC: datacenter1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+    healthcheck:
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+      test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
+
+  cassandra-init:
+    image: cassandra:4.1
+    depends_on:
+      cassandra-1:
+        condition: service_healthy
+      cassandra-2:
+        condition: service_healthy
+      cassandra-3:
+        condition: service_healthy
+    volumes:
+      - ./cassandra/schema.cql:/schema.cql
+    entrypoint: [ "/bin/sh", "-c" ]
+    command: |
+      "
+      sleep 15
+      cqlsh cassandra-1 -f /schema.cql
+      "
+
+  wms-service:
+    build: ./wms_service
+    ports:
+      - "8000:8000"
+    depends_on:
+      - kafka
+      - schema-registry
+    volumes:
+      - ./schemas:/app/schemas
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+
+  consumer-service:
+    build: ./consumer_service
+    ports:
+      - "8001:8001"
+    depends_on:
+      cassandra-init:
+        condition: service_completed_successfully
+      - kafka
+      - schema-registry
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CASSANDRA_CONTACT_POINTS: cassandra-1,cassandra-2,cassandra-3
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
