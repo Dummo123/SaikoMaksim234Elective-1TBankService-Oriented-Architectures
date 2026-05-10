@@ -1,0 +1,34 @@
+{
+  "title": "Warehouse Consumer",
+  "panels": [
+    {
+      "title": "Consumer Lag by Partition",
+      "type": "graph",
+      "targets": [
+        {
+          "expr": "consumer_lag",
+          "legendFormat": "partition {{partition}}"
+        }
+      ]
+    },
+    {
+      "title": "Events Processed Per Second",
+      "type": "graph",
+      "targets": [
+        {
+          "expr": "rate(events_processed_total[1m])",
+          "legendFormat": "event_type {{event_type}}"
+        }
+      ]
+    },
+    {
+      "title": "Cassandra Write Errors",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "cassandra_write_errors_total"
+        }
+      ]
+    }
+  ]
+}
