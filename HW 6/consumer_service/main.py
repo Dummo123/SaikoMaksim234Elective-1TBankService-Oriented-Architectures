@@ -10,7 +10,12 @@ from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroDeserializer
 from cassandra_client import CassandraClient
 from handlers import EventHandler
-from metrics import EVENTS_PROCESSED, EVENT_PROCESSING_DURATION, CASSANDRA_WRITE_ERRORS, consumer_lag
+from metrics import (
+    events_processed_total as EVENTS_PROCESSED,
+    event_processing_duration_seconds as EVENT_PROCESSING_DURATION,
+    cassandra_write_errors_total as CASSANDRA_WRITE_ERRORS,
+    consumer_lag,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
