@@ -117,9 +117,11 @@ async def lifespan(app: FastAPI):
     consumer = Consumer(consumer_conf)
     consumer.subscribe([TOPIC])
     lag_task = asyncio.create_task(update_consumer_lag())
+
     async def consume_loop():
+        loop = asyncio.get_event_loop()
         while True:
-            msg = consumer.poll(1.0)
+            msg = await loop.run_in_executor(None, consumer.poll, 1.0)
             if msg is None:
                 continue
             if msg.error():
