@@ -127,8 +127,10 @@ services:
     depends_on:
       cassandra-init:
         condition: service_completed_successfully
-      - kafka
-      - schema-registry
+      kafka:
+        condition: service_started
+      schema-registry:
+        condition: service_started
     environment:
       KAFKA_BOOTSTRAP: kafka:9092
       SCHEMA_REGISTRY_URL: http://schema-registry:8081
