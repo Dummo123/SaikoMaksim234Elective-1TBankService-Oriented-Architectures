@@ -26,3 +26,7 @@ consumer_lag = Gauge(
     "consumer_lag",
     "Current consumer lag per partition", ["partition"]
 )
+
+EVENTS_PROCESSED = events_processed_total
+EVENT_PROCESSING_DURATION = event_processing_duration_seconds
+CASSANDRA_WRITE_ERRORS = cassandra_write_errors_total
