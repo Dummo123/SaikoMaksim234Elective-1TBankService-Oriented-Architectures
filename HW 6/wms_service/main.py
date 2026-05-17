@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from confluent_kafka import Producer
+from confluent_kafka.schema_registry import Schema
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroSerializer
 from confluent_kafka.serialization import SerializationContext, MessageField
@@ -32,7 +33,8 @@ schema_registry_client = SchemaRegistryClient({"url": SCHEMA_REGISTRY_URL})
 def register_schema_with_backward_compatibility(subject: str, schema_str: str):
     compat_url = f"{SCHEMA_REGISTRY_URL}/config/{subject}"
     requests.put(compat_url, json={"compatibility": "BACKWARD"})
-    schema_id = schema_registry_client.register_schema(subject, schema_str)
+    schema = Schema(schema_str, schema_type="AVRO")
+    schema_id = schema_registry_client.register_schema(subject, schema)
     logger.info(f"Registered {subject} with id {schema_id}")
     return schema_id
 
