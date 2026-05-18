@@ -28,22 +28,38 @@ def load_schema(filename: str) -> str:
 SCHEMA_V1 = load_schema("warehouse_event_v1.avsc")
 SCHEMA_V2 = load_schema("warehouse_event_v2.avsc")
 
+# --- Функция ожидания Schema Registry ---
+def wait_for_schema_registry(url, max_retries=30, delay=2):
+    for i in range(max_retries):
+        try:
+            response = requests.get(f"{url}/subjects")
+            if response.status_code == 200:
+                logger.info("Schema Registry is ready")
+                return True
+        except Exception:
+            pass
+        logger.info(f"Waiting for Schema Registry... ({i+1}/{max_retries})")
+        time.sleep(delay)
+    raise RuntimeError("Schema Registry not available after maximum retries")
+
+wait_for_schema_registry(SCHEMA_REGISTRY_URL)
+
 schema_registry_client = SchemaRegistryClient({"url": SCHEMA_REGISTRY_URL})
 
 def register_schema_with_backward_compatibility(subject: str, schema_str: str):
     compat_url = f"{SCHEMA_REGISTRY_URL}/config/{subject}"
-    requests.put(compat_url, json={"compatibility": "BACKWARD"})
+    try:
+        requests.put(compat_url, json={"compatibility": "BACKWARD"})
+    except Exception as e:
+        logger.warning(f"Could not set compatibility: {e}")
     schema = Schema(schema_str, schema_type="AVRO")
     schema_id = schema_registry_client.register_schema(subject, schema)
     logger.info(f"Registered {subject} with id {schema_id}")
     return schema_id
 
 subject = f"{TOPIC}-value"
-try:
-    register_schema_with_backward_compatibility(subject, SCHEMA_V1)
-    register_schema_with_backward_compatibility(subject, SCHEMA_V2)
-except Exception as e:
-    logger.warning(f"Schema registration may have already happened: {e}")
+register_schema_with_backward_compatibility(subject, SCHEMA_V1)
+register_schema_with_backward_compatibility(subject, SCHEMA_V2)
 
 avro_serializer_v1 = AvroSerializer(schema_registry_client, SCHEMA_V1)
 avro_serializer_v2 = AvroSerializer(schema_registry_client, SCHEMA_V2)
@@ -64,7 +80,7 @@ async def health():
 class EventV1(BaseModel):
     event_id: str
     event_type: str
-    event_timestamp: int          # было timestamp
+    event_timestamp: int
     product_id: str
     quantity: int
     zone_id: Optional[str] = None
