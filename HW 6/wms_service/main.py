@@ -83,8 +83,8 @@ class EventV1(BaseModel):
     product_id: str
     quantity: int
     zone_id: Optional[str] = None
-    from_zone_id: Optional[str] = None    # <-- исправлено
-    to_zone_id: Optional[str] = None      # <-- исправлено
+    from_zone_id: Optional[str] = None
+    to_zone_id: Optional[str] = None
     order_id: Optional[str] = None
     order_items: Optional[str] = None
 
@@ -137,7 +137,10 @@ async def run_scenario(name: str):
         _produce({"event_id": "order-1", "event_type": "ORDER_CREATED", "event_timestamp": base_ts + 1200000,
                   "product_id": "ORD-001", "order_id": "ORD-001", "order_items": order_items})
         _produce({"event_id": "order-complete-1", "event_type": "ORDER_COMPLETED", "event_timestamp": base_ts + 1500000,
-                  "product_id": "ORD-001", "order_id": "ORD-001"})
+                  "order_id": "ORD-001"})
+        # Добавлено событие PRODUCT_RELEASED для снятия оставшегося резерва (30 единиц)
+        _produce({"event_id": "release-1", "event_type": "PRODUCT_RELEASED", "event_timestamp": base_ts + 1800000,
+                  "product_id": "SKU-001", "quantity": 30, "zone_id": "ZONE-A"})
         return {"scenario": "basic-cycle", "status": "executed"}
     elif name == "idempotency":
         _produce({"event_id": "dup-1", "event_type": "PRODUCT_RECEIVED", "event_timestamp": base_ts,
