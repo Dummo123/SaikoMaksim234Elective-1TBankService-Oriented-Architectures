@@ -113,6 +113,7 @@ async def lifespan(app: FastAPI):
         "group.id": GROUP_ID,
         "auto.offset.reset": "earliest",
         "enable.auto.commit": False,
+        "max.poll.interval.ms": 600000,
     }
     consumer = Consumer(consumer_conf)
     consumer.subscribe([TOPIC])
