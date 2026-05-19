@@ -5,7 +5,7 @@ import json
 import datetime
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import Response, JSONResponse
 from confluent_kafka import Consumer, KafkaError, KafkaException, Producer
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroDeserializer
@@ -150,7 +150,6 @@ async def lifespan(app: FastAPI):
                 await asyncio.sleep(0)
             except Exception as e:
                 logger.exception(f"Unhandled exception in consume_loop: {e}")
-                # Не завершаем цикл, а ждём и продолжаем
                 await asyncio.sleep(5)
 
     task = asyncio.create_task(consume_loop())
@@ -181,4 +180,4 @@ async def health():
 @app.get("/metrics")
 async def metrics():
     from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-    return generate_latest(), {"Content-Type": CONTENT_TYPE_LATEST}
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
