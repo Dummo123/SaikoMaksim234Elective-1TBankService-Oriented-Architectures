@@ -5,7 +5,7 @@ import json
 import datetime
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse  # <-- ИСПРАВЛЕНО
+from fastapi.responses import JSONResponse
 from confluent_kafka import Consumer, KafkaError, KafkaException, Producer
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroDeserializer
@@ -55,7 +55,7 @@ def send_to_dlq(original_event, error_reason, partition, offset):
     }
     producer.produce(DLQ_TOPIC, value=json.dumps(dlq_msg).encode("utf-8"), callback=delivery_report)
     producer.poll(0)
-    EVENTS_DLQ.inc()  # <-- ИСПРАВЛЕНО
+    EVENTS_DLQ.inc()
 
 def process_message(msg):
     try:
@@ -108,9 +108,14 @@ async def update_consumer_lag():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global cassandra_client, event_handler, consumer
+    logger.info("Lifespan starting...")
+    logger.info("Connecting to Cassandra...")
     cassandra_client = CassandraClient(hosts=CASSANDRA_CONTACT_POINTS, keyspace="warehouse")
     cassandra_client.connect()
+    logger.info("Cassandra connected")
+
     event_handler = EventHandler(cassandra_client)
+
     consumer_conf = {
         "bootstrap.servers": KAFKA_BOOTSTRAP,
         "group.id": GROUP_ID,
@@ -118,25 +123,40 @@ async def lifespan(app: FastAPI):
         "enable.auto.commit": False,
         "max.poll.interval.ms": 600000,
     }
+    logger.info(f"Creating Kafka consumer with config: {consumer_conf}")
     consumer = Consumer(consumer_conf)
+    logger.info(f"Subscribing to topic {TOPIC}")
     consumer.subscribe([TOPIC])
+    logger.info("Subscription done")
+
     lag_task = asyncio.create_task(update_consumer_lag())
+    logger.info("Lag updater task created")
 
     async def consume_loop():
+        logger.info("Consume loop started")
         loop = asyncio.get_event_loop()
         while True:
-            msg = await loop.run_in_executor(None, consumer.poll, 1.0)
-            if msg is None:
-                continue
-            if msg.error():
-                if msg.error().code() == KafkaError._PARTITION_EOF:
+            try:
+                msg = await loop.run_in_executor(None, consumer.poll, 1.0)
+                if msg is None:
                     continue
-                else:
-                    raise KafkaException(msg.error())
-            process_message(msg)
-            await asyncio.sleep(0)
+                if msg.error():
+                    if msg.error().code() == KafkaError._PARTITION_EOF:
+                        continue
+                    else:
+                        logger.error(f"Kafka error: {msg.error()}")
+                        raise KafkaException(msg.error())
+                process_message(msg)
+                await asyncio.sleep(0)
+            except Exception as e:
+                logger.exception(f"Unhandled exception in consume_loop: {e}")
+                # Не завершаем цикл, а ждём и продолжаем
+                await asyncio.sleep(5)
+
     task = asyncio.create_task(consume_loop())
+    logger.info("Consume loop task created")
     yield
+    logger.info("Lifespan shutting down...")
     task.cancel()
     lag_task.cancel()
     consumer.close()
