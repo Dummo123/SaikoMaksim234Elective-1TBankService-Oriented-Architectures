@@ -83,8 +83,8 @@ class EventV1(BaseModel):
     product_id: str
     quantity: int
     zone_id: Optional[str] = None
-    from_zone_id: Optional[str] = None
-    to_zone_id: Optional[str] = None
+    from_zone_id: Optional[str] = None    # <-- исправлено
+    to_zone_id: Optional[str] = None      # <-- исправлено
     order_id: Optional[str] = None
     order_items: Optional[str] = None
 
