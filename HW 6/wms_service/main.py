@@ -113,48 +113,52 @@ async def send_event_v2(event: EventV2):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def send_event(event_dict, version="v1"):
-    url = "http://wms-service:8000/events" if version == "v1" else "http://wms-service:8000/events/v2"
-    resp = requests.post(url, json=event_dict)
-    resp.raise_for_status()
+def _produce(event_dict: dict, version: str = "v1"):
+    """Напрямую отправляет событие в Kafka без HTTP-вызова."""
+    if version == "v1":
+        serialized = avro_serializer_v1(event_dict, SerializationContext(TOPIC, MessageField.VALUE))
+    else:
+        serialized = avro_serializer_v2(event_dict, SerializationContext(TOPIC, MessageField.VALUE))
+    producer.produce(TOPIC, value=serialized, callback=delivery_report)
+    producer.flush()
 
 @app.post("/scenario/{name}")
 async def run_scenario(name: str):
     base_ts = int(time.time() * 1000)
     if name == "basic-cycle":
-        send_event({"event_id": "recv-1", "event_type": "PRODUCT_RECEIVED", "event_timestamp": base_ts,
-                    "product_id": "SKU-001", "quantity": 100, "zone_id": "ZONE-A"})
-        send_event({"event_id": "res-1", "event_type": "PRODUCT_RESERVED", "event_timestamp": base_ts + 300000,
-                    "product_id": "SKU-001", "quantity": 30, "zone_id": "ZONE-A"})
-        send_event({"event_id": "move-1", "event_type": "PRODUCT_MOVED", "event_timestamp": base_ts + 600000,
-                    "product_id": "SKU-001", "quantity": 20, "from_zone": "ZONE-A", "to_zone": "ZONE-B"})
-        send_event({"event_id": "ship-1", "event_type": "PRODUCT_SHIPPED", "event_timestamp": base_ts + 900000,
-                    "product_id": "SKU-001", "quantity": 10, "zone_id": "ZONE-A"})
+        _produce({"event_id": "recv-1", "event_type": "PRODUCT_RECEIVED", "event_timestamp": base_ts,
+                  "product_id": "SKU-001", "quantity": 100, "zone_id": "ZONE-A"})
+        _produce({"event_id": "res-1", "event_type": "PRODUCT_RESERVED", "event_timestamp": base_ts + 300000,
+                  "product_id": "SKU-001", "quantity": 30, "zone_id": "ZONE-A"})
+        _produce({"event_id": "move-1", "event_type": "PRODUCT_MOVED", "event_timestamp": base_ts + 600000,
+                  "product_id": "SKU-001", "quantity": 20, "from_zone": "ZONE-A", "to_zone": "ZONE-B"})
+        _produce({"event_id": "ship-1", "event_type": "PRODUCT_SHIPPED", "event_timestamp": base_ts + 900000,
+                  "product_id": "SKU-001", "quantity": 10, "zone_id": "ZONE-A"})
         order_items = json.dumps([{"product_id": "SKU-001", "zone_id": "ZONE-A", "quantity": 15}])
-        send_event({"event_id": "order-1", "event_type": "ORDER_CREATED", "event_timestamp": base_ts + 1200000,
-                    "order_id": "ORD-001", "order_items": order_items})
-        send_event({"event_id": "order-complete-1", "event_type": "ORDER_COMPLETED", "event_timestamp": base_ts + 1500000,
-                    "order_id": "ORD-001"})
+        _produce({"event_id": "order-1", "event_type": "ORDER_CREATED", "event_timestamp": base_ts + 1200000,
+                  "order_id": "ORD-001", "order_items": order_items})
+        _produce({"event_id": "order-complete-1", "event_type": "ORDER_COMPLETED", "event_timestamp": base_ts + 1500000,
+                  "order_id": "ORD-001"})
         return {"scenario": "basic-cycle", "status": "executed"}
     elif name == "idempotency":
-        send_event({"event_id": "dup-1", "event_type": "PRODUCT_RECEIVED", "event_timestamp": base_ts,
-                    "product_id": "SKU-002", "quantity": 50, "zone_id": "ZONE-A"})
-        send_event({"event_id": "dup-1", "event_type": "PRODUCT_RECEIVED", "event_timestamp": base_ts,
-                    "product_id": "SKU-002", "quantity": 50, "zone_id": "ZONE-A"})
+        _produce({"event_id": "dup-1", "event_type": "PRODUCT_RECEIVED", "event_timestamp": base_ts,
+                  "product_id": "SKU-002", "quantity": 50, "zone_id": "ZONE-A"})
+        _produce({"event_id": "dup-1", "event_type": "PRODUCT_RECEIVED", "event_timestamp": base_ts,
+                  "product_id": "SKU-002", "quantity": 50, "zone_id": "ZONE-A"})
         return {"scenario": "idempotency", "status": "executed"}
     elif name == "out-of-order":
-        send_event({"event_id": "time-1", "event_type": "PRODUCT_RECEIVED", "event_timestamp": base_ts,
-                    "product_id": "SKU-004", "quantity": 100, "zone_id": "ZONE-A"})
-        send_event({"event_id": "time-2", "event_type": "PRODUCT_SHIPPED", "event_timestamp": base_ts + 300000,
-                    "product_id": "SKU-004", "quantity": 20, "zone_id": "ZONE-A"})
-        send_event({"event_id": "time-3", "event_type": "PRODUCT_RECEIVED", "event_timestamp": base_ts + 120000,
-                    "product_id": "SKU-004", "quantity": 50, "zone_id": "ZONE-A"})
+        _produce({"event_id": "time-1", "event_type": "PRODUCT_RECEIVED", "event_timestamp": base_ts,
+                  "product_id": "SKU-004", "quantity": 100, "zone_id": "ZONE-A"})
+        _produce({"event_id": "time-2", "event_type": "PRODUCT_SHIPPED", "event_timestamp": base_ts + 300000,
+                  "product_id": "SKU-004", "quantity": 20, "zone_id": "ZONE-A"})
+        _produce({"event_id": "time-3", "event_type": "PRODUCT_RECEIVED", "event_timestamp": base_ts + 120000,
+                  "product_id": "SKU-004", "quantity": 50, "zone_id": "ZONE-A"})
         return {"scenario": "out-of-order", "status": "executed"}
     elif name == "dlq-test":
-        send_event({"event_id": "bad-1", "event_type": "PRODUCT_SHIPPED", "event_timestamp": base_ts,
-                    "product_id": "SKU-005", "quantity": -5, "zone_id": "ZONE-A"})
-        send_event({"event_id": "good-1", "event_type": "PRODUCT_RECEIVED", "event_timestamp": base_ts + 300000,
-                    "product_id": "SKU-005", "quantity": 10, "zone_id": "ZONE-A"})
+        _produce({"event_id": "bad-1", "event_type": "PRODUCT_SHIPPED", "event_timestamp": base_ts,
+                  "product_id": "SKU-005", "quantity": -5, "zone_id": "ZONE-A"})
+        _produce({"event_id": "good-1", "event_type": "PRODUCT_RECEIVED", "event_timestamp": base_ts + 300000,
+                  "product_id": "SKU-005", "quantity": 10, "zone_id": "ZONE-A"})
         return {"scenario": "dlq-test", "status": "executed"}
     else:
         raise HTTPException(status_code=404, detail="Scenario not found")
