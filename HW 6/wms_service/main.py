@@ -83,8 +83,8 @@ class EventV1(BaseModel):
     product_id: str
     quantity: int
     zone_id: Optional[str] = None
-    from_zone: Optional[str] = None
-    to_zone: Optional[str] = None
+    from_zone_id: Optional[str] = None
+    to_zone_id: Optional[str] = None
     order_id: Optional[str] = None
     order_items: Optional[str] = None
 
@@ -114,7 +114,6 @@ async def send_event_v2(event: EventV2):
         raise HTTPException(status_code=500, detail=str(e))
 
 def _produce(event_dict: dict, version: str = "v1"):
-    """Напрямую отправляет событие в Kafka без HTTP-вызова."""
     if version == "v1":
         serialized = avro_serializer_v1(event_dict, SerializationContext(TOPIC, MessageField.VALUE))
     else:
@@ -131,14 +130,14 @@ async def run_scenario(name: str):
         _produce({"event_id": "res-1", "event_type": "PRODUCT_RESERVED", "event_timestamp": base_ts + 300000,
                   "product_id": "SKU-001", "quantity": 30, "zone_id": "ZONE-A"})
         _produce({"event_id": "move-1", "event_type": "PRODUCT_MOVED", "event_timestamp": base_ts + 600000,
-                  "product_id": "SKU-001", "quantity": 20, "from_zone": "ZONE-A", "to_zone": "ZONE-B"})
+                  "product_id": "SKU-001", "quantity": 20, "from_zone_id": "ZONE-A", "to_zone_id": "ZONE-B"})
         _produce({"event_id": "ship-1", "event_type": "PRODUCT_SHIPPED", "event_timestamp": base_ts + 900000,
                   "product_id": "SKU-001", "quantity": 10, "zone_id": "ZONE-A"})
         order_items = json.dumps([{"product_id": "SKU-001", "zone_id": "ZONE-A", "quantity": 15}])
         _produce({"event_id": "order-1", "event_type": "ORDER_CREATED", "event_timestamp": base_ts + 1200000,
-                  "order_id": "ORD-001", "order_items": order_items})
+                  "product_id": "ORD-001", "order_id": "ORD-001", "order_items": order_items})
         _produce({"event_id": "order-complete-1", "event_type": "ORDER_COMPLETED", "event_timestamp": base_ts + 1500000,
-                  "order_id": "ORD-001"})
+                  "product_id": "ORD-001", "order_id": "ORD-001"})
         return {"scenario": "basic-cycle", "status": "executed"}
     elif name == "idempotency":
         _produce({"event_id": "dup-1", "event_type": "PRODUCT_RECEIVED", "event_timestamp": base_ts,
