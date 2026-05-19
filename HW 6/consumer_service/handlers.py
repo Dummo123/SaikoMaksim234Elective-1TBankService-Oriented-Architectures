@@ -51,6 +51,16 @@ class EventHandler:
             return True
         return False
 
+    # ─── Helper: validate quantity ─────────────────────────────────────────
+
+    def _require_positive_qty(self, qty: int, event_type: str):
+        if qty <= 0:
+            raise ValueError(f"{event_type}: quantity must be positive, got {qty}")
+
+    def _require_non_negative_qty(self, qty: int, event_type: str):
+        if qty < 0:
+            raise ValueError(f"{event_type}: quantity cannot be negative, got {qty}")
+
     # ─── Individual handlers ───────────────────────────────────────────────
 
     def _product_received(self, event: dict):
@@ -61,6 +71,8 @@ class EventHandler:
         eid = event["event_id"]
         etype = event["event_type"]
         supplier_id = event.get("supplier_id")  # V2 field, None for V1 events
+
+        self._require_positive_qty(qty, etype)
 
         if self._is_stale(pid, zid, ts):
             self.db.mark_processed_only(eid, etype)
@@ -95,6 +107,8 @@ class EventHandler:
         ts  = event["event_timestamp"]
         eid = event["event_id"]
         etype = event["event_type"]
+
+        self._require_positive_qty(qty, etype)
 
         if self._is_stale(pid, zid, ts):
             self.db.mark_processed_only(eid, etype)
@@ -133,6 +147,8 @@ class EventHandler:
         ts        = event["event_timestamp"]
         eid       = event["event_id"]
         etype     = event["event_type"]
+
+        self._require_positive_qty(qty, etype)
 
         # Check staleness for both zones
         from_inv = self.db.get_zone_inventory(pid, from_zone)
@@ -178,6 +194,8 @@ class EventHandler:
         eid = event["event_id"]
         etype = event["event_type"]
 
+        self._require_positive_qty(qty, etype)
+
         if self._is_stale(pid, zid, ts):
             self.db.mark_processed_only(eid, etype)
             return
@@ -214,6 +232,8 @@ class EventHandler:
         eid = event["event_id"]
         etype = event["event_type"]
 
+        self._require_positive_qty(qty, etype)
+
         if self._is_stale(pid, zid, ts):
             self.db.mark_processed_only(eid, etype)
             return
@@ -243,16 +263,14 @@ class EventHandler:
         log.info("RELEASED product=%s zone=%s qty=%d", pid, zid, qty)
 
     def _inventory_counted(self, event: dict):
-        """
-        Physical count overrides whatever is in the system — this is intentional.
-        Timestamp check still applies: an old count should not overwrite a newer one.
-        """
         pid = event["product_id"]
         zid = event["zone_id"]
         qty = event["quantity"]
         ts  = event["event_timestamp"]
         eid = event["event_id"]
         etype = event["event_type"]
+
+        self._require_non_negative_qty(qty, etype)
 
         if self._is_stale(pid, zid, ts):
             self.db.mark_processed_only(eid, etype)
@@ -284,7 +302,6 @@ class EventHandler:
         eid        = event["event_id"]
         etype      = event["event_type"]
 
-        # Parse order items and reserve stock for each line
         try:
             items = json.loads(items_json)
         except (json.JSONDecodeError, TypeError):
@@ -323,7 +340,6 @@ class EventHandler:
             self.db.mark_processed_only(eid, etype)
             return
 
-        # Ship all reserved items (reserved_quantity decreases, available unchanged)
         try:
             items = json.loads(order.items or "[]")
         except (json.JSONDecodeError, TypeError):

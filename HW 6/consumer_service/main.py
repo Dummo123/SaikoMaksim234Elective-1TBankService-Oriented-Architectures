@@ -5,6 +5,7 @@ import json
 import datetime
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse  # <-- ИСПРАВЛЕНО
 from confluent_kafka import Consumer, KafkaError, KafkaException, Producer
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroDeserializer
@@ -15,6 +16,7 @@ from metrics import (
     event_processing_duration_seconds as EVENT_PROCESSING_DURATION,
     cassandra_write_errors_total as CASSANDRA_WRITE_ERRORS,
     consumer_lag,
+    events_dlq_total as EVENTS_DLQ,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -53,6 +55,7 @@ def send_to_dlq(original_event, error_reason, partition, offset):
     }
     producer.produce(DLQ_TOPIC, value=json.dumps(dlq_msg).encode("utf-8"), callback=delivery_report)
     producer.poll(0)
+    EVENTS_DLQ.inc()  # <-- ИСПРАВЛЕНО
 
 def process_message(msg):
     try:
@@ -144,15 +147,15 @@ app = FastAPI(lifespan=lifespan)
 @app.get("/health")
 async def health():
     if cassandra_client is None or consumer is None:
-        return {"status": "unavailable"}, 503
+        return JSONResponse({"status": "unavailable"}, status_code=503)
     try:
         cassandra_client.session.execute("SELECT now() FROM system.local")
     except Exception:
-        return {"status": "cassandra unreachable"}, 503
+        return JSONResponse({"status": "cassandra unreachable"}, status_code=503)
     try:
         consumer.list_topics(timeout=5)
     except Exception:
-        return {"status": "kafka unreachable"}, 503
+        return JSONResponse({"status": "kafka unreachable"}, status_code=503)
     return {"status": "ok"}
 
 @app.get("/metrics")

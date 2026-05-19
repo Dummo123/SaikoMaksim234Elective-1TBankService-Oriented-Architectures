@@ -20,6 +20,7 @@ event_processing_duration_seconds = Histogram(
     "event_processing_duration_seconds",
     "End-to-end processing time per event (Kafka receive → Cassandra commit)",
     buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
+    labelnames=["event_type"],   # <-- ИСПРАВЛЕНО
 )
 
 consumer_lag = Gauge(
