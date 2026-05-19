@@ -123,31 +123,29 @@ def _produce(event_dict: dict, version: str = "v1"):
 
 @app.post("/scenario/{name}")
 async def run_scenario(name: str):
-    # base_ts больше не используется; timestamps фиксированы для basic-cycle
+    base_ts = int(time.time() * 1000)
     if name == "basic-cycle":
-        _produce({"event_id": "recv-1", "event_type": "PRODUCT_RECEIVED", "event_timestamp": 1700000000000,
+        _produce({"event_id": "recv-1", "event_type": "PRODUCT_RECEIVED", "event_timestamp": base_ts,
                   "product_id": "SKU-001", "quantity": 100, "zone_id": "ZONE-A"})
-        _produce({"event_id": "res-1", "event_type": "PRODUCT_RESERVED", "event_timestamp": 1700000300000,
+        _produce({"event_id": "res-1", "event_type": "PRODUCT_RESERVED", "event_timestamp": base_ts + 300000,
                   "product_id": "SKU-001", "quantity": 30, "zone_id": "ZONE-A"})
-        _produce({"event_id": "move-1", "event_type": "PRODUCT_MOVED", "event_timestamp": 1700000600000,
+        _produce({"event_id": "move-1", "event_type": "PRODUCT_MOVED", "event_timestamp": base_ts + 600000,
                   "product_id": "SKU-001", "quantity": 20, "from_zone_id": "ZONE-A", "to_zone_id": "ZONE-B"})
-        _produce({"event_id": "ship-1", "event_type": "PRODUCT_SHIPPED", "event_timestamp": 1700000900000,
+        _produce({"event_id": "ship-1", "event_type": "PRODUCT_SHIPPED", "event_timestamp": base_ts + 900000,
                   "product_id": "SKU-001", "quantity": 10, "zone_id": "ZONE-A"})
         order_items = json.dumps([{"product_id": "SKU-001", "zone_id": "ZONE-A", "quantity": 15}])
-        _produce({"event_id": "order-1", "event_type": "ORDER_CREATED", "event_timestamp": 1700001200000,
+        _produce({"event_id": "order-1", "event_type": "ORDER_CREATED", "event_timestamp": base_ts + 1200000,
                   "product_id": "ORD-001", "order_id": "ORD-001", "order_items": order_items})
-        _produce({"event_id": "order-complete-1", "event_type": "ORDER_COMPLETED", "event_timestamp": 1700001500000,
+        _produce({"event_id": "order-complete-1", "event_type": "ORDER_COMPLETED", "event_timestamp": base_ts + 1500000,
                   "product_id": "ORD-001", "order_id": "ORD-001"})
         return {"scenario": "basic-cycle", "status": "executed"}
     elif name == "idempotency":
-        base_ts = int(time.time() * 1000)
         _produce({"event_id": "dup-1", "event_type": "PRODUCT_RECEIVED", "event_timestamp": base_ts,
                   "product_id": "SKU-002", "quantity": 50, "zone_id": "ZONE-A"})
         _produce({"event_id": "dup-1", "event_type": "PRODUCT_RECEIVED", "event_timestamp": base_ts,
                   "product_id": "SKU-002", "quantity": 50, "zone_id": "ZONE-A"})
         return {"scenario": "idempotency", "status": "executed"}
     elif name == "out-of-order":
-        base_ts = int(time.time() * 1000)
         _produce({"event_id": "time-1", "event_type": "PRODUCT_RECEIVED", "event_timestamp": base_ts,
                   "product_id": "SKU-004", "quantity": 100, "zone_id": "ZONE-A"})
         _produce({"event_id": "time-2", "event_type": "PRODUCT_SHIPPED", "event_timestamp": base_ts + 300000,
@@ -156,7 +154,6 @@ async def run_scenario(name: str):
                   "product_id": "SKU-004", "quantity": 50, "zone_id": "ZONE-A"})
         return {"scenario": "out-of-order", "status": "executed"}
     elif name == "dlq-test":
-        base_ts = int(time.time() * 1000)
         _produce({"event_id": "bad-1", "event_type": "PRODUCT_SHIPPED", "event_timestamp": base_ts,
                   "product_id": "SKU-005", "quantity": -5, "zone_id": "ZONE-A"})
         _produce({"event_id": "good-1", "event_type": "PRODUCT_RECEIVED", "event_timestamp": base_ts + 300000,
