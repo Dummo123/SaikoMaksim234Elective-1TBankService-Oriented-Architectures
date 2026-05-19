@@ -137,8 +137,7 @@ async def run_scenario(name: str):
         _produce({"event_id": "order-1", "event_type": "ORDER_CREATED", "event_timestamp": base_ts + 1200000,
                   "product_id": "ORD-001", "order_id": "ORD-001", "order_items": order_items})
         _produce({"event_id": "order-complete-1", "event_type": "ORDER_COMPLETED", "event_timestamp": base_ts + 1500000,
-                  "order_id": "ORD-001"})
-        # Добавлено событие PRODUCT_RELEASED для снятия оставшегося резерва (30 единиц)
+                  "product_id": "ORD-001", "order_id": "ORD-001"})   # <--- добавлен product_id
         _produce({"event_id": "release-1", "event_type": "PRODUCT_RELEASED", "event_timestamp": base_ts + 1800000,
                   "product_id": "SKU-001", "quantity": 30, "zone_id": "ZONE-A"})
         return {"scenario": "basic-cycle", "status": "executed"}
