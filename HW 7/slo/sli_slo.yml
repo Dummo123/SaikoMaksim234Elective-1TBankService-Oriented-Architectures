@@ -1,0 +1,96 @@
+# Warehouse System — SLI / SLO Definitions
+# ==========================================
+# Point 10 of HW7: system-level Service Level Indicators and Objectives.
+#
+# Each SLI is measured from real Prometheus metrics (not hardcoded values).
+# PromQL expressions match exactly what scripts/check_metrics.sh evaluates.
+
+slis:
+  # ── SLI 1: API Availability ─────────────────────────────────────────────────
+  - id: api_availability
+    name: "WMS API Availability"
+    description: >
+      The fraction of HTTP requests to the WMS service that complete with a
+      2xx status code. This directly measures whether the entry point of the
+      system is functional from the client's perspective.
+    measurement_unit: ratio          # 0.0–1.0
+    promql: |
+      sum(rate(wms_http_requests_total{status=~"2.."}[5m]))
+      /
+      (sum(rate(wms_http_requests_total[5m])) + 0.001)
+    slo:
+      target:          0.995         # 99.5 % of requests succeed
+      description:     "At least 99.5% of requests return a 2xx response over any 5-minute window."
+    failure_threshold:
+      value:           0.95          # < 95 % = system is broken
+      description:     "Below 95% availability the system is considered non-functional and CI fails."
+    rationale: >
+      99.5% SLO gives a 2.5-min error budget per day — enough margin for
+      transient Kafka/Cassandra hiccups without paging.  95% failure threshold
+      catches real outages (e.g. a service crash) without false positives from
+      rolling restarts.
+
+  # ── SLI 2: WMS Request Latency (p95) ────────────────────────────────────────
+  - id: wms_latency_p95
+    name: "WMS API p95 Response Latency"
+    description: >
+      The 95th-percentile HTTP response time of the WMS service, measured over
+      a rolling 5-minute window.  p95 is chosen over p50 because it captures
+      the experience of the slowest-but-not-outlier users and correlates with
+      Kafka producer flush time and Avro serialization overhead.
+    measurement_unit: seconds
+    promql: |
+      histogram_quantile(
+        0.95,
+        sum(rate(wms_http_request_duration_seconds_bucket[5m])) by (le)
+      )
+    slo:
+      target:          0.5           # p95 < 500 ms
+      description:     "95th-percentile response time stays below 500 ms."
+    failure_threshold:
+      value:           1.0           # p95 > 1 s = broken
+      description:     "p95 above 1 s means the Kafka flush or Schema Registry call is pathologically slow; CI fails."
+    rationale: >
+      500 ms is the realistic target given synchronous producer.flush() in the
+      critical path.  1 s failure threshold is twice the SLO and accounts for
+      GC pauses on the Kafka broker or Schema Registry cold-start.
+
+  # ── SLI 3: Event Processing Delay (p95) ─────────────────────────────────────
+  - id: event_processing_delay_p95
+    name: "End-to-End Event Processing Delay (p95)"
+    description: >
+      The 95th-percentile time from when the consumer picks a message off the
+      Kafka topic to when it commits the offset after writing to Cassandra.
+      This covers Avro deserialization, idempotency check (QUORUM read),
+      business-logic computation, and the Cassandra LOGGED BATCH write.
+    measurement_unit: seconds
+    promql: |
+      histogram_quantile(
+        0.95,
+        sum(rate(event_processing_duration_seconds_bucket[5m])) by (le)
+      )
+    slo:
+      target:          2.0           # p95 < 2 s
+      description:     "95th-percentile event processing time stays under 2 seconds."
+    failure_threshold:
+      value:           5.0           # p95 > 5 s = broken
+      description:     "p95 above 5 s implies a Cassandra QUORUM stall or network partition; CI fails."
+    rationale: >
+      2 s SLO accommodates the QUORUM idempotency read + LOGGED BATCH write
+      across 3 Cassandra nodes.  5 s failure threshold is chosen to detect a
+      node becoming slow (e.g. compaction storm) before it cascades into a
+      full timeout (15 s driver timeout).
+
+# ── How SLIs feed into CI ───────────────────────────────────────────────────
+#
+# scripts/check_metrics.sh runs the PromQL above against the live Prometheus
+# instance after the k6 load test.  The script exits 1 if any failure threshold
+# is breached, which causes the CI pipeline (point 8) to fail.
+#
+# Alert rules in prometheus/alerts.yml fire at the SLO level (not the failure
+# threshold) to give operators early warning before CI starts failing.
+#
+# Mapping:
+#   SLI 1 (availability)  → alert HighErrorRate      (>5% errors ≈ <95% availability)
+#   SLI 2 (WMS latency)   → alert HighLatencyWMS     (p95 > 1 s)
+#   SLI 3 (event delay)   → alert HighEventProcessingLatency (p95 > 2 s)
