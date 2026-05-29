@@ -1,0 +1,42 @@
+global:
+  resolve_timeout: 5m
+
+# Route tree: critical → immediate, warning → grouped every 5 m
+route:
+  group_by: ["alertname", "service"]
+  group_wait:      10s
+  group_interval:  1m
+  repeat_interval: 1h
+  receiver: "default-webhook"
+
+  routes:
+    - matchers:
+        - severity = "critical"
+      receiver: "critical-webhook"
+      group_wait: 5s
+      repeat_interval: 15m
+
+    - matchers:
+        - severity = "warning"
+      receiver: "default-webhook"
+
+receivers:
+  # Default: logs to a local webhook-logger sidecar (no external dependency).
+  # Replace url with your actual webhook (Slack, PagerDuty, etc.) for production.
+  - name: "default-webhook"
+    webhook_configs:
+      - url: "http://alertmanager:9093/-/webhook"
+        send_resolved: true
+
+  - name: "critical-webhook"
+    webhook_configs:
+      - url: "http://alertmanager:9093/-/webhook"
+        send_resolved: true
+
+inhibit_rules:
+  # If a ServiceDown alert is firing, suppress the downstream alerts for it.
+  - source_matchers:
+      - alertname = "ServiceDown"
+    target_matchers:
+      - severity = "warning"
+    equal: ["service"]
