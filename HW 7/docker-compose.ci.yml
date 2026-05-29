@@ -1,0 +1,56 @@
+# docker-compose.ci.yml
+# Used in CI only via: docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
+#
+# Changes vs production compose:
+#  - Single Cassandra node (cassandra-2/3 disabled) — GitHub Actions runners
+#    have 7 GB RAM; three Cassandra nodes need ~6 GB, leaving nothing for Kafka.
+#  - Heap capped at 512 MB for cassandra-1 to stay within runner limits.
+#  - cassandra-init depends only on cassandra-1.
+#  - cassandra-exporter points only at cassandra-1.
+#  - kafka-exporter, alertmanager, grafana omitted (not needed for test correctness).
+
+version: '3.8'
+
+services:
+
+  cassandra-1:
+    environment:
+      CASSANDRA_SEEDS:          cassandra-1
+      CASSANDRA_CLUSTER_NAME:   WarehouseCluster
+      CASSANDRA_DC:             datacenter1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+      MAX_HEAP_SIZE:            "512M"
+      HEAP_NEWSIZE:             "128M"
+
+  # Disable nodes 2 and 3 in CI
+  cassandra-2:
+    deploy:
+      replicas: 0
+    profiles: ["full-cluster"]    # never started unless profile explicitly set
+
+  cassandra-3:
+    deploy:
+      replicas: 0
+    profiles: ["full-cluster"]
+
+  cassandra-init:
+    depends_on:
+      cassandra-1:
+        condition: service_healthy
+
+  consumer-service:
+    environment:
+      KAFKA_BOOTSTRAP:           kafka:9092
+      SCHEMA_REGISTRY_URL:       http://schema-registry:8081
+      CASSANDRA_CONTACT_POINTS:  cassandra-1   # single node in CI
+
+  cassandra-exporter:
+    environment:
+      CASSANDRA_CONTACT_POINTS: cassandra-1
+
+  # Disable heavy/non-essential services in CI
+  alertmanager:
+    profiles: ["monitoring"]
+
+  grafana:
+    profiles: ["monitoring"]
