@@ -1,0 +1,37 @@
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "alerts.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  # ── Application services ────────────────────────────────────────────────────
+  - job_name: "wms-service"
+    static_configs:
+      - targets: ["wms-service:8000"]
+    metrics_path: /metrics
+
+  - job_name: "consumer-service"
+    static_configs:
+      - targets: ["consumer-service:8001"]
+    metrics_path: /metrics
+
+  # ── Infrastructure exporters ────────────────────────────────────────────────
+  - job_name: "kafka-exporter"
+    static_configs:
+      - targets: ["kafka-exporter:9308"]
+
+  - job_name: "cassandra-exporter"
+    static_configs:
+      - targets: ["cassandra-exporter:9500"]
+
+  # ── Prometheus self-monitoring ───────────────────────────────────────────────
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
