@@ -14,9 +14,6 @@ jobs:
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: HW7
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -24,25 +21,13 @@ jobs:
           python-version: "3.11"
           cache: "pip"
       - name: Install consumer dependencies
-        run: |
-          pip install \
-            -r consumer_service/requirements.txt \
-            -r consumer_service/tests/requirements.txt
+        run: pip install -r HW7/consumer_service/requirements.txt -r HW7/consumer_service/tests/requirements.txt
       - name: Run consumer unit tests
-        run: |
-          cd consumer_service
-          python -m pytest tests/test_unit_handlers.py -v --tb=short \
-            --junitxml=../test-results/consumer-unit.xml
+        run: python -m pytest HW7/consumer_service/tests/test_unit_handlers.py -v --tb=short --junitxml=HW7/test-results/consumer-unit.xml
       - name: Install WMS dependencies
-        run: |
-          pip install \
-            -r wms_service/requirements.txt \
-            -r wms_service/tests/requirements.txt
+        run: pip install -r HW7/wms_service/requirements.txt -r HW7/wms_service/tests/requirements.txt
       - name: Run WMS unit tests
-        run: |
-          cd wms_service
-          python -m pytest tests/test_unit_wms.py -v --tb=short \
-            --junitxml=../test-results/wms-unit.xml
+        run: python -m pytest HW7/wms_service/tests/test_unit_wms.py -v --tb=short --junitxml=HW7/test-results/wms-unit.xml
       - name: Upload unit test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -54,27 +39,21 @@ jobs:
     name: Build Docker Images
     runs-on: ubuntu-latest
     needs: unit-tests
-    defaults:
-      run:
-        working-directory: HW7
     steps:
       - uses: actions/checkout@v4
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Build wms-service image
-        run: docker build -t warehouse/wms-service:ci ./wms_service
+        run: docker build -t warehouse/wms-service:ci HW7/wms_service
       - name: Build consumer-service image
-        run: docker build -t warehouse/consumer-service:ci ./consumer_service
+        run: docker build -t warehouse/consumer-service:ci HW7/consumer_service
       - name: Build cassandra-exporter image
-        run: docker build -t warehouse/cassandra-exporter:ci ./cassandra_exporter
+        run: docker build -t warehouse/cassandra-exporter:ci HW7/cassandra_exporter
 
   integration-e2e:
     name: Integration & E2E Tests
     runs-on: ubuntu-latest
     needs: build
-    defaults:
-      run:
-        working-directory: HW7
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -82,37 +61,32 @@ jobs:
           python-version: "3.11"
           cache: "pip"
       - name: Start services (CI profile)
-        run: |
-          docker compose \
-            -f docker-compose.yml \
-            -f docker-compose.ci.yml \
-            up -d --build
+        run: docker compose -f HW7/docker-compose.yml -f HW7/docker-compose.ci.yml up -d --build
       - name: Wait for all services to be healthy
         env:
           MAX_WAIT: "300"
-        run: bash scripts/wait_for_services.sh
+        run: bash HW7/scripts/wait_for_services.sh
       - name: Install integration test dependencies
-        run: pip install -r tests/integration/requirements.txt
+        run: pip install -r HW7/tests/integration/requirements.txt
       - name: Run integration tests
         env:
           WMS_URL: http://localhost:8000
           CONSUMER_URL: http://localhost:8001
           CASSANDRA_HOSTS: localhost
           PROCESS_WAIT: "5"
-        run: python -m pytest tests/integration/test_integration.py -v --tb=short --junitxml=test-results/integration.xml
+        run: python -m pytest HW7/tests/integration/test_integration.py -v --tb=short --junitxml=HW7/test-results/integration.xml
       - name: Install E2E test dependencies
-        run: pip install -r tests/e2e/requirements.txt
+        run: pip install -r HW7/tests/e2e/requirements.txt
       - name: Run E2E tests
         env:
           WMS_URL: http://localhost:8000
           CONSUMER_URL: http://localhost:8001
           CASSANDRA_HOSTS: localhost
           PROCESS_WAIT: "5"
-        run: python -m pytest tests/e2e/test_e2e.py -v --tb=short --junitxml=test-results/e2e.xml
+        run: python -m pytest HW7/tests/e2e/test_e2e.py -v --tb=short --junitxml=HW7/test-results/e2e.xml
       - name: Dump service logs on failure
         if: failure()
-        run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --no-color > service-logs.txt 2>&1 || true
+        run: docker compose -f HW7/docker-compose.yml -f HW7/docker-compose.ci.yml logs --no-color > HW7/service-logs.txt 2>&1 || true
       - name: Upload test results and logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -123,54 +97,42 @@ jobs:
             HW7/service-logs.txt
       - name: Tear down
         if: always()
-        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
+        run: docker compose -f HW7/docker-compose.yml -f HW7/docker-compose.ci.yml down -v
 
   load-and-metrics:
     name: Load Tests & Metrics Validation
     runs-on: ubuntu-latest
     needs: integration-e2e
-    defaults:
-      run:
-        working-directory: HW7
     steps:
       - uses: actions/checkout@v4
       - name: Start services
-        run: |
-          docker compose \
-            -f docker-compose.yml \
-            -f docker-compose.ci.yml \
-            up -d --build
+        run: docker compose -f HW7/docker-compose.yml -f HW7/docker-compose.ci.yml up -d --build
       - name: Wait for services
         env:
           MAX_WAIT: "300"
-        run: bash scripts/wait_for_services.sh
+        run: bash HW7/scripts/wait_for_services.sh
       - name: Warm up
         run: sleep 30
       - name: Install k6
         run: |
-          sudo gpg --no-default-keyring \
-            --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
-            --keyserver hkp://keyserver.ubuntu.com:80 \
-            --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
-          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
           sudo apt-get update -qq
           sudo apt-get install -y k6
       - name: Run k6 load test
         env:
           WMS_URL: http://localhost:8000
         run: |
-          mkdir -p tests/load/results
-          k6 run --out json=tests/load/results/k6_raw.json --env WMS_URL=http://localhost:8000 tests/load/load_test.js
+          mkdir -p HW7/tests/load/results
+          k6 run --out json=HW7/tests/load/results/k6_raw.json --env WMS_URL=http://localhost:8000 HW7/tests/load/load_test.js
       - name: Verify service health after load
         run: |
           curl -sf http://localhost:8000/health | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['status']=='ok', d"
           curl -sf http://localhost:8001/health | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['status']=='ok', d"
-      - name: Wait for Prometheus to scrape
+      - name: Wait for Prometheus to scrape post-load metrics
         run: sleep 30
-      - name: Validate metrics
+      - name: Validate Prometheus metrics against SLO thresholds
         env:
           PROMETHEUS_URL: http://localhost:9090
-        run: bash scripts/check_metrics.sh
+        run: bash HW7/scripts/check_metrics.sh
       - name: Upload load test artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -179,8 +141,7 @@ jobs:
           path: HW7/tests/load/results/
       - name: Dump logs on failure
         if: failure()
-        run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --no-color > service-logs-load.txt 2>&1 || true
+        run: docker compose -f HW7/docker-compose.yml -f HW7/docker-compose.ci.yml logs --no-color > HW7/service-logs-load.txt 2>&1 || true
       - name: Upload service logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -189,4 +150,4 @@ jobs:
           path: HW7/service-logs-load.txt
       - name: Tear down
         if: always()
-        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
+        run: docker compose -f HW7/docker-compose.yml -f HW7/docker-compose.ci.yml down -v
