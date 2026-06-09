@@ -1,0 +1,194 @@
+version: '3.8'
+
+services:
+
+  # ── Message broker ────────────────────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME:   2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on: [zookeeper]
+    ports:
+      - "29092:29092"           # host-accessible listener for local dev / PyCharm
+    environment:
+      KAFKA_BROKER_ID:                        1
+      KAFKA_ZOOKEEPER_CONNECT:                zookeeper:2181
+      KAFKA_LISTENERS:                        PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS:             PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP:   PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME:       PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.5.0
+    depends_on: [kafka]
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:9092
+      SCHEMA_REGISTRY_HOST_NAME:                    schema-registry
+      SCHEMA_REGISTRY_LISTENERS:                    http://0.0.0.0:8081
+
+  kafka-setup:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on: [kafka]
+    entrypoint: ['/bin/sh', '-c']
+    command: |
+      "
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic warehouse-events     --partitions 3 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic warehouse-events-dlq --partitions 1 --replication-factor 1
+      "
+
+  # ── Kafka metrics exporter ─────────────────────────────────────────────────
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    depends_on: [kafka]
+    command: ["--kafka.server=kafka:9092"]
+    ports:
+      - "9308:9308"
+
+  # ── Cassandra cluster ─────────────────────────────────────────────────────
+  cassandra-1:
+    image: cassandra:4.1
+    container_name: cassandra-1
+    ports:
+      - "9042:9042"             # exposed for local dev / PyCharm
+    environment:
+      CASSANDRA_SEEDS:          cassandra-1
+      CASSANDRA_CLUSTER_NAME:   WarehouseCluster
+      CASSANDRA_DC:             datacenter1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+    healthcheck:
+      test:         ["CMD", "cqlsh", "-e", "describe keyspaces"]
+      interval:     30s
+      timeout:      10s
+      retries:      5
+      start_period: 90s
+
+  cassandra-2:
+    image: cassandra:4.1
+    container_name: cassandra-2
+    depends_on:
+      cassandra-1:
+        condition: service_healthy
+    environment:
+      CASSANDRA_SEEDS:           cassandra-1
+      CASSANDRA_CLUSTER_NAME:    WarehouseCluster
+      CASSANDRA_DC:              datacenter1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+    healthcheck:
+      test:         ["CMD", "cqlsh", "-e", "describe keyspaces"]
+      interval:     30s
+      timeout:      10s
+      retries:      5
+      start_period: 90s
+
+  cassandra-3:
+    image: cassandra:4.1
+    container_name: cassandra-3
+    depends_on:
+      cassandra-2:
+        condition: service_healthy
+    environment:
+      CASSANDRA_SEEDS:           cassandra-1
+      CASSANDRA_CLUSTER_NAME:    WarehouseCluster
+      CASSANDRA_DC:              datacenter1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+    healthcheck:
+      test:         ["CMD", "cqlsh", "-e", "describe keyspaces"]
+      interval:     30s
+      timeout:      10s
+      retries:      5
+      start_period: 90s
+
+  cassandra-init:
+    image: cassandra:4.1
+    depends_on:
+      cassandra-1: { condition: service_healthy }
+      cassandra-2: { condition: service_healthy }
+      cassandra-3: { condition: service_healthy }
+    volumes:
+      - ./cassandra/schema.cql:/schema.cql
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      "
+      sleep 15
+      cqlsh cassandra-1 -f /schema.cql && echo 'Schema applied successfully'
+      "
+
+  # ── Cassandra metrics exporter ─────────────────────────────────────────────
+  cassandra-exporter:
+    build: ./cassandra_exporter
+    depends_on:
+      cassandra-init:
+        condition: service_completed_successfully
+    ports:
+      - "9500:9500"
+    environment:
+      CASSANDRA_CONTACT_POINTS: cassandra-1
+      CASSANDRA_KEYSPACE:       warehouse
+      SCRAPE_INTERVAL:          "15"
+
+  # ── Application services ───────────────────────────────────────────────────
+  wms-service:
+    build: ./wms_service
+    ports:
+      - "8000:8000"
+    depends_on: [kafka, schema-registry]
+    volumes:
+      - ./schemas:/app/schemas
+    environment:
+      KAFKA_BOOTSTRAP:      kafka:9092
+      SCHEMA_REGISTRY_URL:  http://schema-registry:8081
+
+  consumer-service:
+    build: ./consumer_service
+    ports:
+      - "8001:8001"
+    depends_on:
+      cassandra-init: { condition: service_completed_successfully }
+      kafka:           { condition: service_started }
+      schema-registry: { condition: service_started }
+    environment:
+      KAFKA_BOOTSTRAP:           kafka:9092
+      SCHEMA_REGISTRY_URL:       http://schema-registry:8081
+      CASSANDRA_CONTACT_POINTS:  cassandra-1,cassandra-2,cassandra-3
+
+  # ── Observability stack ────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    depends_on: [prometheus]
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP:     "false"
