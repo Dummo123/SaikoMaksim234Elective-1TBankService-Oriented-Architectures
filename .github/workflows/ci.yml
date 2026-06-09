@@ -99,10 +99,7 @@ jobs:
           CONSUMER_URL: http://localhost:8001
           CASSANDRA_HOSTS: localhost
           PROCESS_WAIT: "5"
-        run: |
-          python -m pytest tests/integration/test_integration.py \
-            -v --tb=short \
-            --junitxml=test-results/integration.xml
+        run: python -m pytest tests/integration/test_integration.py -v --tb=short --junitxml=test-results/integration.xml
       - name: Install E2E test dependencies
         run: pip install -r tests/e2e/requirements.txt
       - name: Run E2E tests
@@ -111,15 +108,11 @@ jobs:
           CONSUMER_URL: http://localhost:8001
           CASSANDRA_HOSTS: localhost
           PROCESS_WAIT: "5"
-        run: |
-          python -m pytest tests/e2e/test_e2e.py \
-            -v --tb=short \
-            --junitxml=test-results/e2e.xml
+        run: python -m pytest tests/e2e/test_e2e.py -v --tb=short --junitxml=test-results/e2e.xml
       - name: Dump service logs on failure
         if: failure()
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs \
-            --no-color > service-logs.txt 2>&1 || true
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --no-color > service-logs.txt 2>&1 || true
       - name: Upload test results and logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -151,7 +144,7 @@ jobs:
         env:
           MAX_WAIT: "300"
         run: bash scripts/wait_for_services.sh
-      - name: Warm up (30s baseline metrics collection)
+      - name: Warm up
         run: sleep 30
       - name: Install k6
         run: |
@@ -159,9 +152,7 @@ jobs:
             --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
             --keyserver hkp://keyserver.ubuntu.com:80 \
             --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
-          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] \
-            https://dl.k6.io/deb stable main" \
-            | sudo tee /etc/apt/sources.list.d/k6.list
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
           sudo apt-get update -qq
           sudo apt-get install -y k6
       - name: Run k6 load test
@@ -169,19 +160,14 @@ jobs:
           WMS_URL: http://localhost:8000
         run: |
           mkdir -p tests/load/results
-          k6 run \
-            --out json=tests/load/results/k6_raw.json \
-            --env WMS_URL=http://localhost:8000 \
-            tests/load/load_test.js
+          k6 run --out json=tests/load/results/k6_raw.json --env WMS_URL=http://localhost:8000 tests/load/load_test.js
       - name: Verify service health after load
         run: |
-          curl -sf http://localhost:8000/health | python3 -c \
-            "import sys,json; d=json.load(sys.stdin); assert d['status']=='ok', d"
-          curl -sf http://localhost:8001/health | python3 -c \
-            "import sys,json; d=json.load(sys.stdin); assert d['status']=='ok', d"
-      - name: Wait for Prometheus to scrape post-load metrics
+          curl -sf http://localhost:8000/health | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['status']=='ok', d"
+          curl -sf http://localhost:8001/health | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['status']=='ok', d"
+      - name: Wait for Prometheus to scrape
         run: sleep 30
-      - name: Validate Prometheus metrics against SLO thresholds
+      - name: Validate metrics
         env:
           PROMETHEUS_URL: http://localhost:9090
         run: bash scripts/check_metrics.sh
@@ -194,8 +180,7 @@ jobs:
       - name: Dump logs on failure
         if: failure()
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml \
-            logs --no-color > service-logs-load.txt 2>&1 || true
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --no-color > service-logs-load.txt 2>&1 || true
       - name: Upload service logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
