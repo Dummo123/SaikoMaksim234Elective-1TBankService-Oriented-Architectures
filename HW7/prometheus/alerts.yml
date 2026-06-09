@@ -1,0 +1,151 @@
+groups:
+  - name: warehouse_service_alerts
+    interval: 30s
+    rules:
+
+      # ── Point 9a: High error rate ───────────────────────────────────────────
+      # Fires when >5 % of WMS or consumer HTTP requests return 4xx/5xx
+      # over a 5-minute window.
+      # Rationale: 5 % is the SLO breach threshold defined in slo/sli_slo.yml.
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(wms_http_request_errors_total[5m]))
+            /
+            sum(rate(wms_http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service:  wms-service
+        annotations:
+          summary:     "WMS error rate is above 5 %"
+          description: "Current error rate: {{ $value | humanizePercentage }}. SLO threshold is 5 %."
+
+      - alert: ConsumerHighErrorRate
+        expr: |
+          (
+            sum(rate(http_request_errors_total[5m]))
+            /
+            (sum(rate(http_requests_total[5m])) + 1)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service:  consumer-service
+        annotations:
+          summary:     "Consumer error rate is above 5 %"
+          description: "Current error rate: {{ $value | humanizePercentage }}."
+
+      # ── Point 9b: High latency ──────────────────────────────────────────────
+      # Fires when the p95 response latency of the WMS service exceeds 1 s.
+      # Rationale: SLO target is p95 < 500 ms; 1 s is the hard failure threshold.
+      - alert: HighLatencyWMS
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(wms_http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          service:  wms-service
+        annotations:
+          summary:     "WMS p95 latency exceeded 1 s"
+          description: "p95 latency is {{ $value | humanizeDuration }}. SLO target is < 500 ms."
+
+      - alert: HighEventProcessingLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(event_processing_duration_seconds_bucket[5m])) by (le, event_type)
+          ) > 2.0
+        for: 5m
+        labels:
+          severity: warning
+          service:  consumer-service
+        annotations:
+          summary:     "Event processing p95 latency exceeded 2 s"
+          description: "Event type {{ $labels.event_type }} p95: {{ $value | humanizeDuration }}."
+
+      # ── Point 9c: Consumer lag ──────────────────────────────────────────────
+      # Fires when any partition's consumer lag is consistently above 1000.
+      # Rationale: at the expected throughput a lag of 1000 represents roughly
+      # 5-10 minutes of backlog, which exceeds our event-processing SLO delay.
+      - alert: HighConsumerLag
+        expr: consumer_lag > 1000
+        for: 5m
+        labels:
+          severity: warning
+          service:  consumer-service
+        annotations:
+          summary:     "Kafka consumer lag is high on partition {{ $labels.partition }}"
+          description: "Lag is {{ $value }} messages. Threshold is 1000."
+
+      - alert: CriticalConsumerLag
+        expr: consumer_lag > 5000
+        for: 2m
+        labels:
+          severity: critical
+          service:  consumer-service
+        annotations:
+          summary:     "Kafka consumer lag is critical on partition {{ $labels.partition }}"
+          description: "Lag is {{ $value }} messages. Service may be stalled."
+
+      # ── Point 9d: Service down ──────────────────────────────────────────────
+      # Fires when Prometheus cannot scrape a target for more than 1 minute.
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary:     "Service {{ $labels.job }} is down"
+          description: "Prometheus cannot reach {{ $labels.instance }} for over 1 minute."
+
+      # ── Bonus: Cassandra write errors ───────────────────────────────────────
+      - alert: CassandraWriteErrors
+        expr: rate(cassandra_write_errors_total[5m]) > 0.1
+        for: 3m
+        labels:
+          severity: critical
+          service:  consumer-service
+        annotations:
+          summary:     "Cassandra write error rate is elevated"
+          description: "Write error rate: {{ $value }}/s over the last 5 minutes."
+
+      # ── Bonus: DLQ spike ────────────────────────────────────────────────────
+      - alert: DLQSpike
+        expr: rate(events_dlq_total[5m]) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+          service:  consumer-service
+        annotations:
+          summary:     "Events are being routed to the DLQ at a high rate"
+          description: "DLQ rate: {{ $value }}/s. Investigate event validation failures."
+
+  # ── Infrastructure alerts ───────────────────────────────────────────────────
+  - name: warehouse_infrastructure_alerts
+    interval: 30s
+    rules:
+
+      - alert: CassandraDown
+        expr: cassandra_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: cassandra
+        annotations:
+          summary:     "Cassandra cluster is unreachable"
+          description: "The Cassandra exporter cannot connect to any node."
+
+      - alert: KafkaBrokerDown
+        expr: kafka_brokers < 1
+        for: 1m
+        labels:
+          severity: critical
+          component: kafka
+        annotations:
+          summary:     "No Kafka brokers available"
+          description: "kafka_brokers metric reports 0 available brokers."
