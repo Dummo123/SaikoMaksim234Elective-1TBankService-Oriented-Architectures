@@ -1,0 +1,261 @@
+name: Warehouse CI Pipeline
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+# Cancel any in-progress run for the same branch/PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ════════════════════════════════════════════════════════════════════════════
+  # JOB 1 — Unit tests  (no Docker; pure Python with mocks)
+  # HW7 points: 1 (build + unit-test step), 2 (unit tests exist)
+  # ════════════════════════════════════════════════════════════════════════════
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      # ── Consumer unit tests ─────────────────────────────────────────────────
+      - name: Install consumer dependencies
+        run: |
+          pip install \
+            -r consumer_service/requirements.txt \
+            -r consumer_service/tests/requirements.txt
+
+      - name: Run consumer unit tests
+        run: |
+          cd consumer_service
+          python -m pytest tests/test_unit_handlers.py -v --tb=short \
+            --junitxml=../test-results/consumer-unit.xml
+
+      # ── WMS unit tests ──────────────────────────────────────────────────────
+      - name: Install WMS dependencies
+        run: |
+          pip install \
+            -r wms_service/requirements.txt \
+            -r wms_service/tests/requirements.txt
+
+      - name: Run WMS unit tests
+        run: |
+          cd wms_service
+          python -m pytest tests/test_unit_wms.py -v --tb=short \
+            --junitxml=../test-results/wms-unit.xml
+
+      - name: Upload unit test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: test-results/
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # JOB 2 — Build Docker images
+  # HW7 point: 1 (build step in CI)
+  # ════════════════════════════════════════════════════════════════════════════
+  build:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: unit-tests
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build wms-service image
+        run: docker build -t warehouse/wms-service:ci ./wms_service
+
+      - name: Build consumer-service image
+        run: docker build -t warehouse/consumer-service:ci ./consumer_service
+
+      - name: Build cassandra-exporter image
+        run: docker build -t warehouse/cassandra-exporter:ci ./cassandra_exporter
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # JOB 3 — Integration + E2E tests
+  # HW7 points: 1 (integration-tests step), 2 (integration tests), 3 (E2E)
+  # ════════════════════════════════════════════════════════════════════════════
+  integration-e2e:
+    name: Integration & E2E Tests
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      # CI compose: single Cassandra node to fit 7 GB runner RAM
+      - name: Start services (CI profile)
+        run: |
+          docker compose \
+            -f docker-compose.yml \
+            -f docker-compose.ci.yml \
+            up -d --build
+
+      - name: Wait for all services to be healthy
+        env:
+          MAX_WAIT: "300"
+        run: bash scripts/wait_for_services.sh
+
+      # ── Integration tests ────────────────────────────────────────────────
+      - name: Install integration test dependencies
+        run: pip install -r tests/integration/requirements.txt
+
+      - name: Run integration tests
+        env:
+          WMS_URL:      http://localhost:8000
+          CONSUMER_URL: http://localhost:8001
+          CASSANDRA_HOSTS: localhost
+          PROCESS_WAIT: "5"
+        run: |
+          python -m pytest tests/integration/test_integration.py \
+            -v --tb=short \
+            --junitxml=test-results/integration.xml
+
+      # ── E2E tests ────────────────────────────────────────────────────────
+      - name: Install E2E test dependencies
+        run: pip install -r tests/e2e/requirements.txt
+
+      - name: Run E2E tests
+        env:
+          WMS_URL:      http://localhost:8000
+          CONSUMER_URL: http://localhost:8001
+          CASSANDRA_HOSTS: localhost
+          PROCESS_WAIT: "5"
+        run: |
+          python -m pytest tests/e2e/test_e2e.py \
+            -v --tb=short \
+            --junitxml=test-results/e2e.xml
+
+      # ── Collect logs on failure ───────────────────────────────────────────
+      - name: Dump service logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs \
+            --no-color > service-logs.txt 2>&1 || true
+
+      - name: Upload test results and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-e2e-results
+          path: |
+            test-results/
+            service-logs.txt
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # JOB 4 — Load tests + Prometheus metrics validation
+  # HW7 points: 7 (load tests in CI), 8 (E2E+load+metrics in one run)
+  # ════════════════════════════════════════════════════════════════════════════
+  load-and-metrics:
+    name: Load Tests & Metrics Validation
+    runs-on: ubuntu-latest
+    needs: integration-e2e
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start services
+        run: |
+          docker compose \
+            -f docker-compose.yml \
+            -f docker-compose.ci.yml \
+            up -d --build
+
+      - name: Wait for services
+        env:
+          MAX_WAIT: "300"
+        run: bash scripts/wait_for_services.sh
+
+      # Allow Prometheus to collect a baseline before we hit it with load
+      - name: Warm up (30s baseline metrics collection)
+        run: sleep 30
+
+      # ── Install k6 ────────────────────────────────────────────────────────
+      - name: Install k6
+        run: |
+          sudo gpg --no-default-keyring \
+            --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+            --keyserver hkp://keyserver.ubuntu.com:80 \
+            --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] \
+            https://dl.k6.io/deb stable main" \
+            | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update -qq
+          sudo apt-get install -y k6
+
+      # ── Run load test (HW7 point 7) ────────────────────────────────────────
+      - name: Run k6 load test
+        env:
+          WMS_URL: http://localhost:8000
+        run: |
+          mkdir -p tests/load/results
+          k6 run \
+            --out json=tests/load/results/k6_raw.json \
+            --env WMS_URL=http://localhost:8000 \
+            tests/load/load_test.js
+
+      # ── Health check still passes after load (HW7 point 7) ─────────────────
+      - name: Verify service health after load
+        run: |
+          curl -sf http://localhost:8000/health | python3 -c \
+            "import sys,json; d=json.load(sys.stdin); assert d['status']=='ok', d"
+          curl -sf http://localhost:8001/health | python3 -c \
+            "import sys,json; d=json.load(sys.stdin); assert d['status']=='ok', d"
+
+      # Allow Prometheus to scrape the post-load state
+      - name: Wait for Prometheus to scrape post-load metrics
+        run: sleep 30
+
+      # ── Validate SLI/SLO thresholds from Prometheus (HW7 point 8) ──────────
+      - name: Validate Prometheus metrics against SLO thresholds
+        env:
+          PROMETHEUS_URL: http://localhost:9090
+        run: bash scripts/check_metrics.sh
+
+      # ── Collect results ────────────────────────────────────────────────────
+      - name: Upload load test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-results
+          path: tests/load/results/
+
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml \
+            logs --no-color > service-logs-load.txt 2>&1 || true
+
+      - name: Upload service logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: service-logs-load
+          path: service-logs-load.txt
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
