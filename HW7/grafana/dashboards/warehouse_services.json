@@ -1,0 +1,128 @@
+{
+  "uid": "warehouse-services",
+  "title": "Warehouse — Services",
+  "tags": ["warehouse", "services"],
+  "timezone": "browser",
+  "refresh": "15s",
+  "schemaVersion": 38,
+  "time": { "from": "now-30m", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "timeseries", "gridPos": {"x":0,"y":0,"w":12,"h":8},
+      "title": "WMS — Request Throughput (req/s)",
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "sum(rate(wms_http_requests_total[1m])) by (endpoint)", "legendFormat": "{{endpoint}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps", "color": { "mode": "palette-classic" } } }
+    },
+    {
+      "id": 2, "type": "timeseries", "gridPos": {"x":12,"y":0,"w":12,"h":8},
+      "title": "WMS — Latency Percentiles (p50 / p95 / p99)",
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(wms_http_request_duration_seconds_bucket[2m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(wms_http_request_duration_seconds_bucket[2m])) by (le))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(wms_http_request_duration_seconds_bucket[2m])) by (le))", "legendFormat": "p99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "lineWidth": 2 } } }
+    },
+    {
+      "id": 3, "type": "timeseries", "gridPos": {"x":0,"y":8,"w":12,"h":8},
+      "title": "WMS — Error Rate (%)",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "100 * sum(rate(wms_http_request_errors_total[2m])) / (sum(rate(wms_http_requests_total[2m])) + 0.001)",
+          "legendFormat": "Error %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": { "mode": "absolute", "steps": [{"color":"green","value":null},{"color":"yellow","value":1},{"color":"red","value":5}] }
+        }
+      }
+    },
+    {
+      "id": 4, "type": "timeseries", "gridPos": {"x":12,"y":8,"w":12,"h":8},
+      "title": "Consumer — Events Processed per Second",
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "sum(rate(events_processed_total[1m])) by (event_type)", "legendFormat": "{{event_type}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "id": 5, "type": "timeseries", "gridPos": {"x":0,"y":16,"w":12,"h":8},
+      "title": "Consumer — Event Processing Latency (p50 / p95 / p99)",
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(event_processing_duration_seconds_bucket[2m])) by (le, event_type))", "legendFormat": "p50 {{event_type}}" },
+        { "expr": "histogram_quantile(0.95, sum(rate(event_processing_duration_seconds_bucket[2m])) by (le, event_type))", "legendFormat": "p95 {{event_type}}" },
+        { "expr": "histogram_quantile(0.99, sum(rate(event_processing_duration_seconds_bucket[2m])) by (le, event_type))", "legendFormat": "p99 {{event_type}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 6, "type": "timeseries", "gridPos": {"x":12,"y":16,"w":12,"h":8},
+      "title": "Consumer — Kafka Consumer Lag by Partition",
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "consumer_lag", "legendFormat": "partition {{partition}}" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{"color":"green","value":null},{"color":"yellow","value":500},{"color":"red","value":1000}] }
+        }
+      }
+    },
+    {
+      "id": 7, "type": "stat", "gridPos": {"x":0,"y":24,"w":6,"h":4},
+      "title": "Total Events Processed",
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "sum(events_processed_total)", "legendFormat": "" }],
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" } } }
+    },
+    {
+      "id": 8, "type": "stat", "gridPos": {"x":6,"y":24,"w":6,"h":4},
+      "title": "DLQ Events Total",
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "events_dlq_total", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{"color":"green","value":null},{"color":"red","value":1}] }
+        }
+      }
+    },
+    {
+      "id": 9, "type": "stat", "gridPos": {"x":12,"y":24,"w":6,"h":4},
+      "title": "Cassandra Write Errors",
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "cassandra_write_errors_total", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{"color":"green","value":null},{"color":"red","value":1}] }
+        }
+      }
+    },
+    {
+      "id": 10, "type": "stat", "gridPos": {"x":18,"y":24,"w":6,"h":4},
+      "title": "WMS p95 Latency",
+      "datasource": "Prometheus",
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum(rate(wms_http_request_duration_seconds_bucket[5m])) by (le))",
+        "legendFormat": ""
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": { "mode": "absolute", "steps": [{"color":"green","value":null},{"color":"yellow","value":0.25},{"color":"red","value":0.5}] }
+        }
+      }
+    }
+  ]
+}
