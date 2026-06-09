@@ -31,7 +31,9 @@ jobs:
       - name: Install WMS dependencies
         run: pip install -r HW7/wms_service/requirements.txt -r HW7/wms_service/tests/requirements.txt
       - name: Run WMS unit tests
-        run: cd HW7/wms_service && python -m pytest tests/test_unit_wms.py -v --tb=short --junitxml=../test-results/wms-unit.xml
+        run: |
+          cd HW7
+          python -m pytest wms_service/tests/test_unit_wms.py -v --tb=short --junitxml=test-results/wms-unit.xml
       - name: Upload unit test results
         if: always()
         uses: actions/upload-artifact@v4
