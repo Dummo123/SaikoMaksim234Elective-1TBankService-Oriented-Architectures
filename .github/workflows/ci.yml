@@ -20,17 +20,19 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
-      - name: Create test results
+      - name: Create test results directory
         run: mkdir -p HW7/test-results
-      - name: Install consumer deps
+      - name: Install pytest
+        run: pip install pytest
+      - name: Install consumer dependencies
         run: pip install -r HW7/consumer_service/requirements.txt -r HW7/consumer_service/tests/requirements.txt
       - name: Run consumer unit tests
         run: cd HW7/consumer_service && python -m pytest tests/test_unit_handlers.py -v --tb=short --junitxml=../test-results/consumer-unit.xml
-      - name: Install WMS deps
+      - name: Install WMS dependencies
         run: pip install -r HW7/wms_service/requirements.txt -r HW7/wms_service/tests/requirements.txt
       - name: Run WMS unit tests
         run: cd HW7/wms_service && python -m pytest tests/test_unit_wms.py -v --tb=short --junitxml=../test-results/wms-unit.xml
-      - name: Upload unit results
+      - name: Upload unit test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -62,15 +64,17 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
-      - name: Create test results
+      - name: Create test results directory
         run: mkdir -p HW7/test-results
+      - name: Install pytest
+        run: pip install pytest
       - name: Start services
         run: docker compose -f HW7/docker-compose.yml -f HW7/docker-compose.ci.yml up -d --build
       - name: Wait for services
         env:
           MAX_WAIT: "300"
         run: bash HW7/scripts/wait_for_services.sh
-      - name: Install integration deps
+      - name: Install integration dependencies
         run: pip install -r HW7/tests/integration/requirements.txt
       - name: Run integration tests
         env:
@@ -79,7 +83,7 @@ jobs:
           CASSANDRA_HOSTS: localhost
           PROCESS_WAIT: "5"
         run: python -m pytest HW7/tests/integration/test_integration.py -v --tb=short --junitxml=HW7/test-results/integration.xml
-      - name: Install E2E deps
+      - name: Install E2E dependencies
         run: pip install -r HW7/tests/e2e/requirements.txt
       - name: Run E2E tests
         env:
@@ -118,7 +122,9 @@ jobs:
       - name: Warm up
         run: sleep 30
       - name: Install k6
-        run: sudo apt-get update -qq && sudo apt-get install -y k6
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y k6
       - name: Run k6 load test
         env:
           WMS_URL: http://localhost:8000
